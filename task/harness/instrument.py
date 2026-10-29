@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import random
 import re
 import statistics
+import sys
+import threading
 import unicodedata
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -141,6 +144,184 @@ def throughput(audio_seconds: float, wall_seconds: float) -> float:
     return audio_seconds / wall_seconds
 
 
+_THREAD_ENV = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS")
+
+
+def _proc_status_mb() -> tuple[float | None, float | None]:
+    """(VmRSS, VmHWM) in MB from /proc/self/status; (None, None) when unreadable."""
+    rss = hwm = None
+    try:
+        with open("/proc/self/status", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("VmRSS:"):
+                    rss = float(line.split()[1]) / 1024.0
+                elif line.startswith("VmHWM:"):
+                    hwm = float(line.split()[1]) / 1024.0
+    except Exception:
+        return None, None
+    return rss, hwm
+
+
+def rss_mb() -> float:
+    """Current resident set in MB. Never raises; falls back to ru_maxrss."""
+    rss, hwm = _proc_status_mb()
+    if rss is not None:
+        return rss
+    if hwm is not None:
+        return hwm
+    try:
+        import resource
+        peak = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        # Linux/macOS differ: KB on Linux, bytes on macOS.
+        return peak / (1024.0 * 1024.0 if sys.platform == "darwin" else 1024.0)
+    except Exception:
+        return 0.0
+
+
+class MemorySampler:
+    """Poll VmRSS in a daemon thread to catch transient peaks between phases.
+
+    The high-water mark is a point-in-time maximum; a short-lived buffer can be freed
+    before the final read, so the workload itself is sampled while it runs. Any failure
+    in sampling is swallowed: memory telemetry must never break a measurement.
+    """
+
+    def __init__(self, interval_ms: int = 50):
+        self.interval = max(0.001, interval_ms / 1000.0)
+        self.peak_mb: float | None = None
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                value = rss_mb()
+                if self.peak_mb is None or value > self.peak_mb:
+                    self.peak_mb = value
+            except Exception:
+                pass
+            self._stop.wait(self.interval)
+
+    def start(self) -> "MemorySampler":
+        self._stop.clear()
+        try:
+            self._thread = threading.Thread(target=self._loop, name="rss-sampler", daemon=True)
+            self._thread.start()
+        except Exception:
+            self._thread = None      # telemetry is optional; the arm still runs
+        return self
+
+    def stop(self) -> float | None:
+        self._stop.set()
+        if self._thread is not None:
+            try:
+                self._thread.join(timeout=2.0)
+            except Exception:
+                pass
+            self._thread = None
+        return self.peak_mb
+
+
+def parse_affinity(spec: str) -> list[int]:
+    """Parse an affinity string: "0-3", "0,2,4", or a mix."""
+    cpus: list[int] = []
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            lo_s, hi_s = part.split("-", 1)
+            lo, hi = int(lo_s), int(hi_s)
+            if hi < lo:
+                raise ValueError(f"bad cpu range {part!r}")
+            cpus.extend(range(lo, hi + 1))
+        else:
+            cpus.append(int(part))
+    return cpus
+
+
+def _format_cpu_set(cpus: set[int]) -> str:
+    ranges: list[str] = []
+    start = prev = None
+    for cpu in sorted(cpus):
+        if start is None:
+            start = prev = cpu
+        elif cpu == prev + 1:
+            prev = cpu
+        else:
+            ranges.append(f"{start}-{prev}" if start != prev else str(start))
+            start = prev = cpu
+    if start is not None:
+        ranges.append(f"{start}-{prev}" if start != prev else str(start))
+    return ",".join(ranges)
+
+
+def apply_cpu_policy(policy: dict | None, environ: dict | None = None) -> dict:
+    """Apply the task's CPU policy once, before any backend loads.
+
+    Thread limits are inherited by arm sub-processes through the environment; affinity
+    is inherited across fork/exec on Linux. Every failure is recorded in `notes`, never
+    raised: a host without sched_setaffinity (macOS) must still score.
+    """
+    policy = policy or {}
+    environ = os.environ if environ is None else environ
+    threads_req = policy.get("threads")
+    affinity_req = policy.get("affinity")
+    notes: list[str] = []
+    threads_applied = None
+
+    if isinstance(threads_req, int) and not isinstance(threads_req, bool):
+        applied = False
+        for key in _THREAD_ENV:
+            if environ.get(key):
+                notes.append(f"{key}={environ[key]} inherited from caller")
+            else:
+                environ[key] = str(threads_req)
+                applied = True
+        if applied:
+            threads_applied = threads_req
+        else:
+            existing = environ.get("OMP_NUM_THREADS")
+            threads_applied = int(existing) if (existing or "").isdigit() else None
+    elif threads_req is not None:
+        notes.append(f"threads={threads_req!r} is not an int; inherited")
+
+    if isinstance(affinity_req, str):
+        try:
+            cpus = parse_affinity(affinity_req)
+            if not cpus:
+                raise ValueError("empty cpu set")
+            if not hasattr(os, "sched_setaffinity"):
+                raise NotImplementedError("os.sched_setaffinity unavailable on this platform")
+            os.sched_setaffinity(0, set(cpus))
+        except Exception as exc:
+            notes.append(f"affinity {affinity_req!r} not applied: {type(exc).__name__}: {exc}")
+    elif affinity_req is not None:
+        notes.append(f"affinity={affinity_req!r} is not a string; inherited")
+
+    affinity_effective = None
+    if hasattr(os, "sched_getaffinity"):
+        try:
+            effective = os.sched_getaffinity(0)
+            affinity_effective = _format_cpu_set(effective)
+            if isinstance(affinity_req, str):
+                requested = set(parse_affinity(affinity_req))
+                if requested != set(effective):
+                    notes.append(
+                        f"affinity effective {affinity_effective} != requested {affinity_req}"
+                    )
+        except Exception as exc:
+            notes.append(f"affinity readback failed: {type(exc).__name__}: {exc}")
+
+    return {
+        "threads_requested": threads_req,
+        "threads_applied": threads_applied,
+        "affinity_requested": affinity_req,
+        "affinity_effective": affinity_effective,
+        "notes": notes,
+    }
+
+
 def summarize_arm(rows: list[dict]) -> dict:
     """Aggregate one arm. `rows` carry per-utterance wall_ms and audio_s."""
     audio = sum(r["audio_s"] for r in rows)
@@ -229,7 +410,8 @@ def geometric_mean(values: list[float]) -> float:
 
 
 __all__ = [
-    "Interval", "asdict", "bucket_of", "corpus_error", "geometric_mean",
-    "load_manifest", "normalize", "paired_bootstrap", "repeat_spread",
+    "Interval", "MemorySampler", "apply_cpu_policy", "asdict", "bucket_of",
+    "corpus_error", "geometric_mean", "load_manifest", "normalize",
+    "paired_bootstrap", "parse_affinity", "repeat_spread", "rss_mb",
     "summarize_arm", "throughput", "utterance_error", "write_json",
 ]

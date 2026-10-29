@@ -15,12 +15,19 @@ constraint:
   paired: true                # resample utterance pairs, never independent arms
   bootstrap_samples: 2000
   seed: 20261029
+  # optional memory gate: peak RSS of the submission arm; null = not gated
+  max_peak_rss_mb: null
 
 measurement:
   dev_manifest: data/dev_manifest.jsonl         # the agent may read this
   hidden_manifest: data/hidden_manifest.jsonl   # scorer only; never on the agent's box
   warmup_utterances: 50
   repeats: 5                  # median over repeats, alternating arms when possible
+  # explicit CPU resource policy, applied once before any backend loads.
+  # null inherits the process default; affinity accepts "0-3" or "0,2,4".
+  cpu:
+    threads: null      # null = inherit the process default
+    affinity: null     # e.g. "0-3"; null = inherit
   batch_size_latency: 1
   batch_size_throughput: 8
   max_utterances_dev: 1000    # cap for the cheap proxy measurement

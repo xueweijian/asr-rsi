@@ -74,6 +74,22 @@ delta is at or below `max_delta_abs`. A run that is 3x faster and 0.5% worse sco
 **0.0**, exactly like a gate failure. Report the delta and its interval, never a
 point estimate alone: on a 2,620-utterance set one utterance is already ~0.04% WER.
 
+Memory is measured per arm and reported as `components.memory`:
+`after_load_mb` (RSS after the backend loaded), `peak_mb` (max of the sampled
+transients during the workload and the final read), `delta_mb` (peak − after load).
+The same block is part of the payload the agent reads. `constraint.max_peak_rss_mb`
+is optional and defaults to `null`; when set, a submission whose peak exceeds it fails
+the constraint exactly like a WER violation, with a reason such as
+`memory 842.0MB > 800.0MB`.
+
+The CPU policy lives under `measurement.cpu` and is applied once, before any backend
+loads: `threads: <int>` sets `OMP/MKL/OPENBLAS/NUMEXPR_NUM_THREADS` only where the
+caller has not already set them, and `affinity: "0-3"` (or `"0,2,4"`) calls
+`os.sched_setaffinity` where available. `null` inherits the process default; failures
+are recorded, not raised. The effective policy is reported as `components.cpu`
+(`threads_requested`, `threads_applied`, `affinity_requested`, `affinity_effective`,
+`notes`), and both arms run under the same policy.
+
 ## Exactness
 
 You cannot silently change the emitted transcript set to buy speed. The gate compares
@@ -89,7 +105,8 @@ only when the task's objective is `wer`; otherwise the gate reports
 | `harness/benchmark.py` | **the score.** Both arms, each in its own process, returns the ratio plus the WER delta interval |
 | `harness/check_submission.py` | cheap gate: plugin builds, hooks fire, fingerprint matches, output non-empty |
 | `harness/_arm.py` | one arm, one process |
-| `harness/instrument.py` | WER/CER, paired bootstrap, RTF and bucket statistics |
+| `harness/instrument.py` | WER/CER, paired bootstrap, RTF and bucket statistics, RSS sampling, CPU policy |
+| `harness/artifacts.py` | writes `plan.json`, `config.patch`, `report.md`, `repro.sh` for a passing full measurement |
 | `harness/backends/` | runtime adapters. `dummy` exists only to self-test the instrument |
 | `data/make_manifest.py` | builds `manifest.jsonl` from a directory of `*.wav` + `*.txt` |
 
@@ -99,6 +116,7 @@ python harness/benchmark.py        --submission <attempt>/full   # authoritative
 python harness/benchmark.py --selftest --submission <attempt>/full   # no real audio
 python harness/benchmark.py --submission <attempt>/full --proxy  # cheap, sets `promote`
 python harness/benchmark.py --submission <attempt>/full --archive archive.jsonl
+python harness/benchmark.py --submission <attempt>/full --artifacts <dir>  # full + passing only
 ```
 
 Two signals exist so a step can be judged on *why* it moved, not only on a scalar:

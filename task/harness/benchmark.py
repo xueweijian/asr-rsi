@@ -26,7 +26,8 @@ TASK = HERE.parent
 sys.path.insert(0, str(HERE))
 
 from instrument import (  # noqa: E402
-    corpus_error, load_manifest, paired_bootstrap, repeat_spread, summarize_arm, write_json,
+    apply_cpu_policy, corpus_error, load_manifest, paired_bootstrap, repeat_spread,
+    summarize_arm, write_json,
 )
 
 REQUIRED_HOOKS = ("configure", "prepare", "preprocess", "postprocess")
@@ -100,12 +101,16 @@ def main() -> int:
                    help="cheap fidelity: proxy_utterances subset; sets `promote`")
     ap.add_argument("--archive", default=None,
                    help="append this measurement to a Pareto archive (jsonl)")
+    ap.add_argument("--artifacts", default=None,
+                   help="export plan.json/config.patch/report.md/repro.sh here "
+                        "(full-fidelity, passing runs only)")
     args = ap.parse_args()
 
     import yaml
     task = yaml.safe_load(Path(args.task).read_text())
     models = json.loads(Path(args.models).read_text())
     m = task["measurement"]
+    cpu = apply_cpu_policy(m.get("cpu") or {})   # before any backend loads
     repeats = int(m["repeats"])
     batch_l = int(m["batch_size_latency"])
     batch_t = int(m["batch_size_throughput"])
@@ -177,7 +182,15 @@ def main() -> int:
     speedup_thr = sub_thr["throughput"] / stock_thr["throughput"] if stock_thr["throughput"] else 0.0
     speedup = speedup_thr                       # headline: batched throughput
     dwer = sub_wer - stock_wer
-    limit_ok = ci.hi <= float(task["constraint"]["max_delta_abs"])
+    wer_ok = ci.hi <= float(task["constraint"]["max_delta_abs"])
+
+    # Memory gate: optional, only the submission arm's peak is gated. A null cap
+    # leaves the measurement unchanged; a missing peak cannot exceed a cap.
+    mem = sub.get("memory") or {}
+    peak_mb = mem.get("peak_mb")
+    mem_cap = task["constraint"].get("max_peak_rss_mb")
+    memory_ok = mem_cap is None or peak_mb is None or float(peak_mb) <= float(mem_cap)
+    limit_ok = wer_ok and memory_ok
 
     result = {
         "score": 0.0,
@@ -191,6 +204,9 @@ def main() -> int:
             "wer_delta": round(dwer, 6),
             "wer_delta_ci": {"mean": round(ci.mean, 6), "lo": round(ci.lo, 6),
                              "hi": round(ci.hi, 6), "samples": ci.samples, "seed": ci.seed},
+            "wer_constraint_ok": wer_ok,
+            "memory_constraint_ok": memory_ok,
+            "max_peak_rss_mb": mem_cap,
             "constraint_ok": limit_ok,
             "transcript_drift": round(drift, 6),
             "stock_latency": stock_lat,
@@ -199,6 +215,8 @@ def main() -> int:
             "submission_throughput": sub_thr,
             "profile_stock": stock_lat.get("profile", {}),
             "profile_submission": sub_lat.get("profile", {}),
+            "memory": mem,
+            "cpu": cpu,
             "repeat_spread_stock": repeat_spread(stock["rows"]),
             "repeat_spread_submission": repeat_spread(sub["rows"]),
             "stock_fingerprint": stock["fingerprint"],
@@ -219,7 +237,15 @@ def main() -> int:
         else:
             raise SystemExit(f"unknown objective {objective!r}")
     else:
-        result["reason"] = "gate" if not gate_passed else "constraint"
+        if not gate_passed:
+            result["reason"] = "gate"
+        else:
+            reasons = []
+            if not wer_ok:
+                reasons.append("constraint")
+            if not memory_ok:
+                reasons.append(f"memory {float(peak_mb):.1f}MB > {float(mem_cap):.1f}MB")
+            result["reason"] = "; ".join(reasons)
 
     # Multi-fidelity: a proxy step only asks "is this worth a full measurement?"
     result["fidelity"] = "proxy" if args.proxy else "full"
@@ -242,6 +268,8 @@ def main() -> int:
             "constraint_ok": limit_ok,
             "gate_passed": gate_passed,
             "utterances": stock_lat["utterances"],
+            "peak_rss_mb": peak_mb,
+            "after_load_mb": mem.get("after_load_mb"),
             "models": str(Path(args.models).name),
         })
 
@@ -253,10 +281,42 @@ def main() -> int:
             print(f"WARNING: stock arm drifted {drift_pct:.2%} from stock_reference; "
                   f"the instrument moved, not the submission", file=sys.stderr)
 
+    # Deliverable artifacts: only a full-fidelity measurement that cleared the gate
+    # and the constraint is a result worth reproducing.
+    if args.artifacts:
+        result["task"] = task.get("task")
+        result["command"] = _command_line()
+        if not args.proxy and gate_passed and limit_ok:
+            from artifacts import export
+            written = export(Path(args.submission), result, Path(args.artifacts))
+            print("artifacts: " + ", ".join(f"{k}={v}" for k, v in written.items()),
+                  file=sys.stderr)
+        else:
+            print("artifacts: skipped (proxy fidelity or failed run)", file=sys.stderr)
+
     if args.json:
         write_json(args.json, result)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
+
+
+def _command_line() -> str:
+    """The command that produced this report, with every path made absolute so the
+    exported repro.sh does not depend on the caller's cwd."""
+    import shlex
+    path_flags = {"--models", "--task", "--manifest", "--submission", "--json",
+                  "--archive", "--artifacts"}
+    raw = sys.argv[1:]
+    parts: list[str] = []
+    i = 0
+    while i < len(raw):
+        if raw[i] in path_flags and i + 1 < len(raw):
+            parts += [raw[i], str(Path(raw[i + 1]).expanduser().resolve())]
+            i += 2
+        else:
+            parts.append(raw[i])
+            i += 1
+    return shlex.join([sys.executable, str(Path(__file__).resolve()), *parts])
 
 
 def _norm_for(lang: str | None, default: str, cjk: str) -> str:

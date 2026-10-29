@@ -130,4 +130,10 @@ A fork of [aibuildai-inc/aibuildai-llm-inference-agent](https://github.com/aibui
 through `43cb78d`), so this fork stays diffable against upstream. `framework/`
 is vendored unmodified; the LLM-specific trees (`train/`, `eval/`, `heads/`, upstream
 `task/`) are dropped, and `task/` here is the ASR contract above. Terms and provenance:
-[LICENSE](LICENSE), [DATA_AND_LICENSES.md](DATA_AND_LICENSES.md).
+[LICENSE](LICENSE), [DATA_AND_LICENSES.md](DATA_AND_LICENSES.md). See
+[UPSTREAM.md](UPSTREAM.md) for the vendoring boundary and the sync commands.
+
+### Diff against upstream
+
+`git diff --stat 43cb78d..HEAD` is the file-level fork manifest; `framework/` must not
+appear in it.

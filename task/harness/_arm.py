@@ -22,7 +22,9 @@ TASK = HERE.parent
 sys.path.insert(0, str(HERE))
 
 from backends.base import Request, build_runtime, load_audio  # noqa: E402
-from instrument import bucket_of, load_manifest, write_json  # noqa: E402
+from instrument import (  # noqa: E402
+    MemorySampler, bucket_of, load_manifest, rss_mb, write_json,
+)
 
 
 def _sync() -> None:
@@ -71,38 +73,52 @@ def main() -> int:
     runtime, _hooks, _cfg = build_runtime(cfg, args.submission)
     fp = runtime.fingerprint()
 
-    reqs = _rows_to_requests(rows, cfg)
-    for req in reqs[:warmup]:
+    # Memory: baseline after load/prepare, transients sampled during the timed
+    # workload, final read after the loop. The sampler stops even on failure.
+    after_load_mb = rss_mb()
+    sampler = MemorySampler().start()
+    try:
+        reqs = _rows_to_requests(rows, cfg)
+        for req in reqs[:warmup]:
+            _sync()
+            runtime.transcribe([req])
         _sync()
-        runtime.transcribe([req])
-    _sync()
 
-    out_rows = []
-    for rep in range(args.repeats):
-        for i in range(0, len(reqs), args.batch):
-            batch = reqs[i:i + args.batch]
-            _sync()
-            t0 = time.perf_counter()
-            results = _infer(runtime, batch, cfg)
-            _sync()
-            dt_ms = (time.perf_counter() - t0) * 1000.0
-            if len(results) != len(batch):
-                raise RuntimeError(f"runtime returned {len(results)} results for {len(batch)} requests")
-            total_dur = sum(r.duration for r in batch) or 1.0
-            by_id = {r.id: r for r in batch}
-            for res in results:
-                req = by_id[res.id]
-                # attribute batch wall time by audio share; totals are preserved
-                share = (req.duration / total_dur) if req.duration else 1.0 / len(batch)
-                prof = res.meta.get("profile_ms") or {}
-                out_rows.append({
-                    "id": req.id, "repeat": rep, "batch": len(batch),
-                    "audio_s": req.duration,
-                    "wall_ms": dt_ms * share,
-                    "profile_ms": {k: float(v) * share for k, v in prof.items()},
-                    "text": res.text,
-                    "bucket": bucket_of(req.duration, buckets),
-                })
+        out_rows = []
+        for rep in range(args.repeats):
+            for i in range(0, len(reqs), args.batch):
+                batch = reqs[i:i + args.batch]
+                _sync()
+                t0 = time.perf_counter()
+                results = _infer(runtime, batch, cfg)
+                _sync()
+                dt_ms = (time.perf_counter() - t0) * 1000.0
+                if len(results) != len(batch):
+                    raise RuntimeError(f"runtime returned {len(results)} results for {len(batch)} requests")
+                total_dur = sum(r.duration for r in batch) or 1.0
+                by_id = {r.id: r for r in batch}
+                for res in results:
+                    req = by_id[res.id]
+                    # attribute batch wall time by audio share; totals are preserved
+                    share = (req.duration / total_dur) if req.duration else 1.0 / len(batch)
+                    prof = res.meta.get("profile_ms") or {}
+                    out_rows.append({
+                        "id": req.id, "repeat": rep, "batch": len(batch),
+                        "audio_s": req.duration,
+                        "wall_ms": dt_ms * share,
+                        "profile_ms": {k: float(v) * share for k, v in prof.items()},
+                        "text": res.text,
+                        "bucket": bucket_of(req.duration, buckets),
+                    })
+    finally:
+        transient_peak = sampler.stop()
+
+    peak_mb = max(after_load_mb, rss_mb(), transient_peak or 0.0)
+    memory = {
+        "after_load_mb": round(after_load_mb, 1),
+        "peak_mb": round(peak_mb, 1),
+        "delta_mb": round(peak_mb - after_load_mb, 1),
+    }
 
     write_json(args.json, {
         "rows": out_rows,
@@ -110,6 +126,7 @@ def main() -> int:
         "submission": bool(args.submission),
         "batch": args.batch,
         "repeats": args.repeats,
+        "memory": memory,
         "git_sha": _git_sha(),
     })
     return 0
