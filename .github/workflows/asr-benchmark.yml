@@ -37,15 +37,16 @@ jobs:
       - name: Fetch model
         if: steps.model-cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ~/models/w
+          mkdir -p "$HOME/models"
           curl -sSL --retry 3 -o /tmp/m.tar.bz2 "$MODEL_URL"
-          tar -xjf /tmp/m.tar.bz2 -C ~/models/w
-          mv ~/models/w/*/ ~/models/ 2>/dev/null || true
-          rm -rf ~/models/w
-          ls -l ~/models
+          tar -xjf /tmp/m.tar.bz2 -C "$HOME/models"
+          find "$HOME/models" -name "model.int8.onnx"
 
       - name: Point the harness at the model tree
-        run: echo "SHERPA_MODEL_DIR=$HOME/models" >> "$GITHUB_ENV"
+        run: |
+          d=$(dirname "$(find "$HOME/models" -name "model.int8.onnx" | head -1)")
+          echo "SHERPA_MODEL_DIR=$d" >> "$GITHUB_ENV"
+          echo "model dir: $d"
 
       - name: Fetch corpus
         run: |
