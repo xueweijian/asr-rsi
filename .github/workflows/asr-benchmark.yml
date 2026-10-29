@@ -61,9 +61,9 @@ jobs:
         run: python task/harness/benchmark.py --submission task/harness/example_submission --selftest
 
       - name: Baseline measurement
-        env:
-          SHERPA_MODEL_DIR: ${{ github.workspace }}/../models
         run: |
+          echo "SHERPA_MODEL_DIR=$HOME/models" >> "$GITHUB_ENV"
+          ls "$HOME/models"
           python task/harness/benchmark.py \
             --submission task/harness/example_submission \
             --limit 60 --archive runs/jsonl \
