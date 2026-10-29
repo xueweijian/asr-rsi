@@ -1,0 +1,60 @@
+name: build-owned-tools
+
+# The CLI compiles its owned PostgreSQL from source (18.6). That takes a long
+# time on a laptop and cannot be mirror-accelerated, so it is built once here on
+# the oldest supported glibc and shipped as an artifact.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build-owned-tools.yml"
+      - "framework/**"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bison flex perl libreadline-dev zlib1g-dev \
+            libicu-dev libssl-dev pkg-config
+
+      - name: Install the framework
+        working-directory: framework
+        run: |
+          pip install --upgrade pip
+          pip install -e ./packages/execution -e ./packages/conversation -e .
+
+      - name: Provision owned tools
+        run: aibuildai setup 2>&1 | tail -20
+
+      - name: Verify the PostgreSQL tree
+        run: |
+          for f in bin/pg_ctl bin/postgres bin/initdb bin/psql \
+                   lib/libpq.so lib/uuid-ossp.so \
+                   share/postgres.bki share/extension/uuid-ossp.control; do
+            test -f "$HOME/.aibuildai/tools/postgresql/18.6/$f" || { echo "missing $f"; exit 1; }
+          done
+          "$HOME/.aibuildai/tools/postgresql/18.6/bin/postgres" --version
+          "$HOME/.aibuildai/tools/micromamba/2.9.0/micromamba" --version
+
+      - name: Package
+        run: |
+          V="glibc$(ldd --version | head -1 | awk '{print $NF}')"
+          tar -czf "owned-tools-linux-x86_64-$V.tar.gz" -C "$HOME/.aibuildai" tools
+          ls -lh owned-tools-linux-x86_64-$V.tar.gz | tee artifact-name.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: owned-tools-linux-x86_64
+          path: owned-tools-*.tar.gz
+          retention-days: 30
