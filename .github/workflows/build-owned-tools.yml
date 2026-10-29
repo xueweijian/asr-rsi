@@ -29,9 +29,14 @@ jobs:
             libicu-dev libssl-dev pkg-config
 
       - name: Install the framework
-        working-directory: framework
         run: |
           pip install --upgrade pip
+          # Build outside the git tree: inside it the conversation package insists on
+          # reading the CLIProxyAPI gitlink, which this fork does not carry. Outside it
+          # honours AIBUILDAI_CLIPROXYAPI_SOURCE_COMMIT and accepts the vendored binary.
+          cp -r framework /tmp/framework
+          cd /tmp/framework
+          export AIBUILDAI_CLIPROXYAPI_SOURCE_COMMIT=$(python -c "import json;print(json.load(open('packages/conversation/src/aibuildai_conversation/_native/identity.json'))['commit'])")
           pip install -e ./packages/execution -e ./packages/conversation -e .
 
       - name: Provision owned tools
