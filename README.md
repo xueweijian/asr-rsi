@@ -100,17 +100,20 @@ it produces is meaningless **except** as evidence that the instrument runs.
 
 ## Adding a backend
 
-One file under `task/harness/backends/`, implementing:
+Copy [`backends/_template.py`](task/harness/backends/_template.py) to `<your_module>.py`
+and fill in three methods:
 
 ```python
 class Runtime:
     def load(self, cfg: dict) -> None: ...
     def transcribe(self, batch: list[Request]) -> list[Result]: ...
     def fingerprint(self) -> dict: ...      # params count + weight hash
+    paradigm = None                         # optional: AED | SPEECH_LLM | TRANSDUCER | NAR_CIF_CTC | HYBRID
 ```
 
 Then set `models.json.target.entrypoint` to `backends.<your_module>:build`. The adapter
-may import any ASR library; the *submission* may not.
+may import any ASR library; the *submission* may not. Declaring `paradigm` (or
+`target.paradigm`) only feeds a routing prior to the agent -- it changes no measurement.
 
 ## What is deliberately unfinished
 
