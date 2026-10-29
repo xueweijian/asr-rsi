@@ -1,11 +1,17 @@
 # ASR-RSI
 
-A fork of [AIBuildAI LLM Inference Agent](https://github.com/aibuildai-inc/aibuildai-llm-inference-agent)
-turned into a **model-agnostic ASR recursive-self-improving agent**.
+A recursive self-improvement framework for automatic speech recognition. An agent
+proposes speed levers, edits the runtime, benchmarks them, and keeps what it learned —
+the same loop as [AIBuildAI LLM Inference Agent](https://github.com/aibuildai-inc/aibuildai-llm-inference-agent),
+with the LLM task layer swapped for an ASR one.
 
-Upstream is already a domain-agnostic RSI framework with an LLM task bolted on. This
-fork keeps the framework byte-identical and replaces the task layer, so the same loop
-runs on any ASR backend a hundred-line adapter can wrap.
+The loop is **model-agnostic**: no file here names a model. Which backend and checkpoint
+to accelerate is declared in a single file, [`task/models.json`](task/models.json), so any
+runtime a ~100-line adapter can wrap goes through the identical search.
+
+> **Status:** `framework/` is vendored byte-identical; the task layer is rewritten; the
+> instrument self-tests offline with no GPU, no audio, no checkpoint. No real backend
+> ships yet — see [What is deliberately unfinished](#what-is-deliberately-unfinished).
 
 ## What was kept, what was replaced
 
@@ -56,8 +62,8 @@ cannot express is a different task, not a clever submission. See
 ## Quickstart
 
 ```bash
-# 0. the fork is not a git repo yet; worktrees need one commit
-git init && git add -A && git commit -m "asr-rsi scaffold"
+# 0. clone (worktree-based runs need the history that ships here)
+git clone https://github.com/xueweijian/asr-rsi.git && cd asr-rsi
 
 # 1. framework environment (upstream guide has the verified commands)
 python3 -m venv ~/asr-rsi-venv && . ~/asr-rsi-venv/bin/activate
