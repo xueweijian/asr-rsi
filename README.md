@@ -120,8 +120,8 @@ may import any ASR library; the *submission* may not.
 ## Upstream & license
 
 A fork of [aibuildai-inc/aibuildai-llm-inference-agent](https://github.com/aibuildai-inc/aibuildai-llm-inference-agent)
-(MIT, Copyright (c) 2026 AIBuildAI Inc.). Upstream tip `43cb78d` is kept as the parent
-commit; the history below it is not carried (upstream was obtained shallow). `framework/`
+(MIT, Copyright (c) 2026 AIBuildAI Inc.). The full upstream history is carried (68 commits
+through `43cb78d`), so this fork stays diffable against upstream. `framework/`
 is vendored unmodified; the LLM-specific trees (`train/`, `eval/`, `heads/`, upstream
 `task/`) are dropped, and `task/` here is the ASR contract above. Terms and provenance:
 [LICENSE](LICENSE), [DATA_AND_LICENSES.md](DATA_AND_LICENSES.md).
