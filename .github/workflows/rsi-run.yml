@@ -103,6 +103,18 @@ jobs:
             -e "s|minutes: 25|minutes: ${{ inputs.worker_minutes }}|" /tmp/run.yaml
           grep -E "wall_clock|cost_usd|playground_root|data_root" /tmp/run.yaml
 
+      # The runner is systemd PID 1, but the runner account has no user manager
+      # until linger is enabled - and the framework refuses to start without one.
+      - name: systemd user manager
+        run: |
+          sudo loginctl enable-linger runner
+          sudo systemctl start "user@$(id -u).service"
+          for i in $(seq 1 20); do
+            systemctl --user is-system-running 2>/dev/null | grep -qE "running|degraded" && break
+            sleep 1
+          done
+          systemctl --user is-system-running
+
       - name: Run
         run: |
           . .venv/bin/activate
