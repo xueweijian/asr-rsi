@@ -266,38 +266,18 @@ mcps: {}
 plugins: {}
 agents: {}
 skills:
-  specdec-measurement:
+  asr-methods:
     type: path
-    path: __REPO__/search/task/skills/specdec-measurement
+    path: __REPO__/task/skills/asr-methods
     roles:
     - worker
-  specdec-exactness:
+  asr-performance-model:
     type: path
-    path: __REPO__/search/task/skills/specdec-exactness
+    path: __REPO__/task/skills/asr-performance-model
     roles:
     - worker
-  specdec-methods:
+  asr-measurement:
     type: path
-    path: __REPO__/search/task/skills/specdec-methods
-    roles:
-    - worker
-  specdec-performance-model:
-    type: path
-    path: __REPO__/search/task/skills/specdec-performance-model
-    roles:
-    - worker
-  specdec-replication:
-    type: path
-    path: __REPO__/search/task/skills/specdec-replication
-    roles:
-    - worker
-  specdec-sglang-recipe:
-    type: path
-    path: __REPO__/search/task/skills/specdec-sglang-recipe
-    roles:
-    - worker
-  gpu-shared-host:
-    type: path
-    path: __REPO__/search/task/skills/gpu-shared-host
+    path: __REPO__/task/skills/asr-measurement
     roles:
     - worker
