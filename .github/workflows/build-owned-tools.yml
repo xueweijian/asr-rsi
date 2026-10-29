@@ -63,3 +63,14 @@ jobs:
           name: owned-tools-linux-x86_64
           path: owned-tools-*.tar.gz
           retention-days: 30
+
+      # Artifact downloads are throttled and need auth; release assets come off
+      # the same CDN as model releases, so the sandbox can pull them quickly.
+      - name: Publish as a release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view tools >/dev/null 2>&1 || \
+            gh release create tools --title "Owned tools (PostgreSQL 18.6, micromamba 2.9.0)" \
+              --notes "Built on ubuntu-22.04 by .github/workflows/build-owned-tools.yml. Unpack into ~/.aibuildai."
+          gh release upload tools owned-tools-*.tar.gz --clobber
