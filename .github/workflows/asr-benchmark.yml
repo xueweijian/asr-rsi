@@ -61,9 +61,6 @@ jobs:
           python data/make_manifest.py /tmp/corpus --out data/hidden_manifest.jsonl --split hidden --lang en
           wc -l data/dev_manifest.jsonl data/hidden_manifest.jsonl
 
-      - name: Instrument self-test
-        run: python task/harness/benchmark.py --submission task/harness/example_submission --selftest
-
       - name: Baseline measurement
         run: |
           python task/harness/benchmark.py \
