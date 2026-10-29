@@ -1,0 +1,79 @@
+name: asr-benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "task/**"
+      - "data/**"
+      - ".github/workflows/asr-benchmark.yml"
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      MODEL_TARBALL: sherpa-onnx-nemo-fast-conformer-ctc-be-de-en-es-fr-hr-it-pl-ru-uk-20k-int8.tar.bz2
+      MODEL_URL: https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-fast-conformer-ctc-be-de-en-es-fr-hr-it-pl-ru-uk-20k-int8.tar.bz2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install runtime
+        run: |
+          pip install --upgrade pip
+          pip install sherpa-onnx soundfile numpy
+
+      - name: Cache model
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/models
+          key: model-${{ env.MODEL_TARBALL }}
+
+      - name: Fetch model
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/models/w
+          curl -sSL --retry 3 -o /tmp/m.tar.bz2 "$MODEL_URL"
+          tar -xjf /tmp/m.tar.bz2 -C ~/models/w
+          mv ~/models/w/*/ ~/models/ 2>/dev/null || true
+          rm -rf ~/models/w
+          ls -l ~/models
+
+      - name: Fetch corpus
+        run: |
+          curl -sSL --retry 3 -o /tmp/dev-clean.tar.gz https://www.openslr.org/resources/12/dev-clean.tar.gz
+          tar -xzf /tmp/dev-clean.tar.gz -C /tmp
+          python data/prepare_librispeech.py /tmp/LibriSpeech/dev-clean /tmp/corpus \
+            --limit-chapters 6 --max-utts 260
+
+      - name: Build manifests
+        run: |
+          python data/make_manifest.py /tmp/corpus --out data/dev_manifest.jsonl --split dev --lang en
+          python data/make_manifest.py /tmp/corpus --out data/hidden_manifest.jsonl --split hidden --lang en
+          wc -l data/dev_manifest.jsonl data/hidden_manifest.jsonl
+
+      - name: Instrument self-test
+        run: python task/harness/benchmark.py --submission task/harness/example_submission --selftest
+
+      - name: Baseline measurement
+        env:
+          SHERPA_MODEL_DIR: ${{ github.workspace }}/../models
+        run: |
+          python task/harness/benchmark.py \
+            --submission task/harness/example_submission \
+            --limit 60 --archive runs/jsonl \
+            --artifacts runs/artifacts --json runs/baseline.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: baseline
+          path: |
+            runs/
+            data/*_manifest.jsonl
+          if-no-files-found: warn
