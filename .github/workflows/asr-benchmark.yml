@@ -44,6 +44,9 @@ jobs:
           rm -rf ~/models/w
           ls -l ~/models
 
+      - name: Point the harness at the model tree
+        run: echo "SHERPA_MODEL_DIR=$HOME/models" >> "$GITHUB_ENV"
+
       - name: Fetch corpus
         run: |
           curl -sSL --retry 3 -o /tmp/dev-clean.tar.gz https://www.openslr.org/resources/12/dev-clean.tar.gz
@@ -62,8 +65,6 @@ jobs:
 
       - name: Baseline measurement
         run: |
-          echo "SHERPA_MODEL_DIR=$HOME/models" >> "$GITHUB_ENV"
-          ls "$HOME/models"
           python task/harness/benchmark.py \
             --submission task/harness/example_submission \
             --limit 60 --archive runs/jsonl \
