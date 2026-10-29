@@ -30,7 +30,6 @@ jobs:
     timeout-minutes: 350
     env:
       AIBUILDAI_SKIP_SUBSCRIPTION_CHECK: "1"
-      XDG_RUNTIME_DIR: /run/user/1000
       ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
       ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
       ANTHROPIC_SMALL_FAST_MODEL: spark-x2.6
@@ -107,12 +106,16 @@ jobs:
       # until linger is enabled - and the framework refuses to start without one.
       - name: systemd user manager
         run: |
-          sudo loginctl enable-linger runner
-          sudo systemctl start "user@$(id -u).service"
+          UID_=$(id -u)
+          sudo loginctl enable-linger "$USER"
+          sudo systemctl start "user@${UID_}.service"
+          export XDG_RUNTIME_DIR="/run/user/${UID_}"
+          echo "XDG_RUNTIME_DIR=/run/user/${UID_}" >> "$GITHUB_ENV"
           for i in $(seq 1 20); do
             systemctl --user is-system-running 2>/dev/null | grep -qE "running|degraded" && break
             sleep 1
           done
+          echo "uid=${UID_} runtime=${XDG_RUNTIME_DIR} linger=$(loginctl show-user "$USER" -p Linger)"
           systemctl --user is-system-running
 
       - name: Run
