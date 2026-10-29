@@ -13,6 +13,16 @@ run:
     wall_clock_minutes: 2880
     cost_usd: 250
     per_agent_cost_cap_usd: 50
+llm:
+  default:
+    model: spark-x2.6
+    effort: null
+    max_thinking_tokens: null
+  by_role:
+    setup:
+      model: spark-x2.6
+  auto: null
+  retry_ceiling_s: null
   system_instructions:
     setup: "This task improves an ASR system inside a frozen runtime. Two assumptions do not hold here.\n\
       1. Scoring is NOT a seconds-long CPU check. It loads an acoustic model and decodes audio on a GPU,\n\
@@ -63,78 +73,6 @@ run:
       measurement. Record every measurement with --archive, and when the frontier holds more
 
       than one point, choose a parent off the Pareto front rather than the single top score.'
-llm:
-  default:
-    model: spark-x2.6
-    effort: null
-    max_thinking_tokens: null
-  by_role:
-    setup:
-      model: spark-x2.6
-  auto: null
-  retry_ceiling_s: null
-  system_instructions:
-    setup: "This task measures decoding speed on a GPU, so two of your usual assumptions do not hold.\n\
-      1. Scoring is NOT a seconds-long CPU check here. It loads large models and generates text on a\n\
-      \   GPU, and legitimately takes tens of minutes. Do not try to make it cheap or to skip work.\n\
-      2. Scoring runs with NO network. Before you finish, run harness/fetch_models.py so every model\n\
-      \   named in models.json is in the local cache and loads with local_files_only=True. If you skip\n\
-      \   this, every scored step of the run will fail.\nWrite private/score.py as a thin wrapper around\
-      \ the task folder's own harness: run harness/gate.py\nfirst, and if its JSON says passed is false\
-      \ return {'score': 0.0}; otherwise run harness/benchmark.py\nand return its 'speedup' as the score.\
-      \ Read the JSON these scripts print; never treat their exit\ncode as the verdict. Pass --device\
-      \ for exactly one GPU. Record method_tokens_per_second,\nbaseline_tokens_per_second, alpha, tau\
-      \ and gate_passed as components.\nInstall torch matching this host's driver, plus transformers,\
-      \ accelerate and huggingface_hub.\nUse example_submission/ as the baseline attempt: it is a complete,\
-      \ working submission.\nThe metric is speedup, and metric_direction is max.\n\nThree rules for score.py,\
-      \ each learned from a run that lost steps to it:\n1. DEVICE. Choose among the VISIBLE devices by\
-      \ free memory, and never by an nvidia-smi index:\n       import torch\n       n = torch.cuda.device_count()\n\
-      \       idx = max(range(n), key=lambda i: torch.cuda.mem_get_info(i)[0])\n       device = f'cuda:{idx}'\n\
-      \   Both halves of that matter, and each has already broken a run.\n   * nvidia-smi ignores CUDA_VISIBLE_DEVICES\
-      \ and reports every physical card on the host. When an\n     Action IS pinned to one card it sees\
-      \ exactly one device, so an nvidia-smi index produced\n     '--device cuda:2' in a process that\
-      \ only had cuda:0, and every scored step died.\n   * But not every caller of score.py is pinned.\
-      \ The SETUP verifier runs it with no GPU request,\n     so all cards are visible and cuda:0 is physical\
-      \ GPU 0 - which on a shared host may be full.\n     Hardcoding cuda:0 sent it onto another tenant's\
-      \ card and it OOMed, then sat waiting for\n     memory that was never going to free while an empty\
-      \ card sat beside it.\n   Selecting the emptiest VISIBLE device is correct in both cases: pinned,\
-      \ there is only one to\n   pick; unpinned, you avoid a card someone else owns.\n2. ERRORS MUST SAY\
-      \ WHY. When you shell out, capture stderr and INCLUDE IT in the exception you\n   raise. A bare\
-      \ CalledProcessError reaches the journal as a wall of traceback with no cause,\n   and the run then\
-      \ repeats the same failure with nothing to diagnose it from.\n3. TRANSIENT OOM. This host is shared\
-      \ and another tenant can fill the card after it was\n   allocated. Before loading a model, check\
-      \ free VRAM (torch.cuda.mem_get_info) and wait for\n   what you need, within your wall-clock budget,\
-      \ instead of dying instantly on the first\n   allocation failure. A step lost this way is hours\
-      \ of work thrown away."
-    worker: "Read README.md in the task folder before changing anything: its measurement rules are not\
-      \ style\npreferences, they decide whether a number means anything. Never edit models.json, prompts.json\
-      \ or\nanything under harness/ - they are the measuring instrument. Write your own implementation;\
-      \ do not\ncopy code from elsewhere on this machine. Export a complete submission directory every\
-      \ step, even\nan unambitious one: a step that exports nothing is scored as nothing.\n\nYour whole\
-      \ step - reading, editing, training, benchmarking, exporting - must fit in 6 hours, and a\nstep\
-      \ killed at its wall-clock limit loses its training entirely; nothing resumes it. So export a\n\
-      loadable artifact early and improve it with the time left, and export a complete submission before\n\
-      you start anything that might not finish. As a rough scale for a target of this size on this class\n\
-      of hardware: a modest proposer training is about an hour, a thorough one three to four hours.\n\n\
-      Two things about how this search is scored should change how you spend a step.\n\n1. The score is\
-      \ speed, but speed is a PRODUCT of two factors: how often the proposer is right, and\n   what each\
-      \ verification cycle costs. Tuning the cost half is fast, safe, and runs out. Improving\n   how\
-      \ often the proposer is right usually means TRAINING - slow, and it may not pay back inside\n  \
-      \ one step. Both are legitimate work. Do not let the second go untouched across the whole run\n\
-      \   merely because the first is easier to bank. Before you choose, measure the decomposition and\n\
-      \   say which factor your change targets.\n\n2. A step that leaves the score flat, or slightly lower,\
-      \ while MEASURABLY improving the proposer's\n   accuracy is progress, not a failed step - provided\
-      \ you record that accuracy number in your notes\n   and in manifest.json so the next step can build\
-      \ on it. State plainly in your notes which of the\n   two factors you moved, and by how much.\n\n\
-      If your proposer is something you train, treat its training data volume and its capacity as things\n\
-      you may change, not as settled by whichever step introduced it first. Producing more training\n\
-      supervision is usually cheap GPU time next to the step budget.\n\nThis task fixes the TARGET model\
-      \ and leaves the proposer open: models.json has\ndraft: null on purpose. A separate draft model,\
-      \ a trained head over the target's own\nhidden states, retrieval from the context, n-gram lookup\
-      \ - the choice and its\njustification are the work. Measure the cost decomposition before committing\
-      \ to one.\nWhatever you load must be in the local HuggingFace cache when scoring runs: your\nsession\
-      \ has network, the score program does not. Download during your session and\nprove the load with\
-      \ local_files_only=True."
 work_units:
 - kind: llm_agent
   name: aggregator
