@@ -99,9 +99,12 @@ jobs:
         if: always()
         with:
           name: rsi-run
+          # Deliberately NOT run.log: GitHub masks secret values in the job log,
+          # but it does not scrub uploaded files. /tmp/run.log is already echoed
+          # to the job log by tee, so uploading it again only adds an unmasked
+          # copy of anything an agent might have printed.
           path: |
             playground/**/workspace/**
             playground/**/resource_samples.jsonl
             data/*_manifest.jsonl
-            /tmp/run.log
           retention-days: 30
