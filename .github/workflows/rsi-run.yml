@@ -10,10 +10,16 @@ on:
     inputs:
       wall_clock_minutes:
         description: hard stop for the whole run
-        default: "100"
+        default: "300"
       cost_usd:
         description: total spend cap
-        default: "12"
+        default: "80"
+      worker_minutes:
+        description: wall clock per work unit
+        default: "35"
+      per_agent_cost_cap_usd:
+        description: spend cap per agent
+        default: "20"
 
 permissions:
   contents: write
@@ -21,7 +27,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 350
     env:
       AIBUILDAI_SKIP_SUBSCRIPTION_CHECK: "1"
       XDG_RUNTIME_DIR: /run/user/1000
@@ -85,9 +91,8 @@ jobs:
           sed -i \
             -e "s|wall_clock_minutes: 180|wall_clock_minutes: ${{ inputs.wall_clock_minutes }}|" \
             -e "s|cost_usd: 30|cost_usd: ${{ inputs.cost_usd }}|" \
-            -e "s|per_agent_cost_cap_usd: 8|per_agent_cost_cap_usd: 2|" \
-            -e "s|minutes: 25|minutes: 10|" \
-            -e "s|max_minutes: 600|max_minutes: 60|" /tmp/run.yaml
+            -e "s|per_agent_cost_cap_usd: 8|per_agent_cost_cap_usd: ${{ inputs.per_agent_cost_cap_usd }}|" \
+            -e "s|minutes: 25|minutes: ${{ inputs.worker_minutes }}|" /tmp/run.yaml
           grep -E "wall_clock|cost_usd|playground_root|data_root" /tmp/run.yaml
 
       - name: Run
