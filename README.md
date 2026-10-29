@@ -65,38 +65,44 @@ cannot express is a different task, not a clever submission. See
 # 0. clone (worktree-based runs need the history that ships here)
 git clone https://github.com/xueweijian/asr-rsi.git && cd asr-rsi
 
-# 1. framework environment (upstream guide has the verified commands)
+# 1. framework environment. The lock pins idna==3.19, which no index carries yet,
+#    so install unpinned. Build outside the git tree: inside it the conversation
+#    package insists on a CLIProxyAPI gitlink this fork does not carry.
 python3 -m venv ~/asr-rsi-venv && . ~/asr-rsi-venv/bin/activate
-export AIBUILDAI_CLIPROXYAPI_SOURCE_COMMIT=<value in upstream search/README.md>
-cd framework && pip install -c requirements.lock -e ./packages/execution \
-  && pip install -c requirements.lock -e ./packages/conversation \
-  && pip install -c requirements.lock -e . && cd ..
+cp -r framework /tmp/framework && cd /tmp/framework
+export AIBUILDAI_CLIPROXYAPI_SOURCE_COMMIT=$(python -c "import json;print(json.load(open('packages/conversation/src/aibuildai_conversation/_native/identity.json'))['commit'])")
+pip install -e ./packages/execution -e ./packages/conversation -e . && cd -
 
-# 2. instrument self-test: no GPU, no audio, no checkpoint
-python task/harness/check_submission.py --submission task/example_submission
-python task/harness/benchmark.py --submission task/example_submission --selftest
+# 1b. the harness needs a runtime, not just the CLI
+pip install sherpa-onnx soundfile numpy pyyaml
 
-# 2b. the two signals a real step uses
-#   --proxy    : score measurement.proxy_utterances, set `promote` (filter, not final)
-#   --archive  : append to a Pareto archive so selection uses the frontier
-python task/harness/benchmark.py --submission task/example_submission --proxy \
-  --archive ~/asr-rsi-playground/archive.jsonl
+# 1c. owned tools (PostgreSQL is compiled from source; the CI lane builds it once)
+gh run download -R xueweijian/asr-rsi -n owned-tools-linux-x86_64 -D /tmp/owned
+tar -xzf /tmp/owned/owned-tools-*.tar.gz -C ~/.aibuildai
+~/.aibuildai/tools/postgresql/18.6/bin/postgres --version
 
-# 3. point it at a real target (edit models.json only)
-#    backend + entrypoint + checkpoint + decode + sample_rate
+# 2. corpus + model + manifests (127MB model, 338MB corpus, one fetch each)
+./data/fetch_local.sh
 
-# 4. build manifests from your corpus
-python data/make_manifest.py /path/to/corpus --out data/dev_manifest.jsonl --split dev
-python data/make_manifest.py /path/to/corpus --out data/hidden_manifest.jsonl --split hidden
+# 3. one measured arm on the real model, before any agent touches it
+SHERPA_MODEL_DIR=~/asr-models/sherpa-onnx-nemo-fast-conformer-ctc-be-de-en-es-fr-hr-it-pl-ru-uk-20k-int8 \
+  python task/harness/benchmark.py --submission task/example_submission \
+  --limit 60 --archive runs/jsonl
 
-# 5. launch
+# 4. launch (budgets in search/run_config.yaml are set for a short first run)
+. ~/.asr-rsi.env   # ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN
 export AIBUILDAI_SKIP_SUBSCRIPTION_CHECK=1
 ./search/launch.sh ~/asr-rsi-playground
 ```
 
-`--selftest` uses `harness/backends/dummy.py`, which emits deterministic nonsense so
-the timing, bucketing, WER and bootstrap paths can be exercised offline. Any number
-it produces is meaningless **except** as evidence that the instrument runs.
+Any number from `--limit` has wider repeat spread than a full run: 60 utterances on this
+model is one measured arm of a couple of minutes, which is the right scale for a first
+smoke test.
+
+`--selftest` uses `harness/backends/dummy.py` and synthesises its manifest, so it has no
+audio to give a real backend. With `models.json` pointing at sherpa it fails by design;
+keep it for instrument-only work.
+
 
 ## Adding a backend
 

@@ -10,9 +10,9 @@ run:
   task_prompt: null
   playground_root: __PLAYGROUND__
   budget:
-    wall_clock_minutes: 2880
-    cost_usd: 250
-    per_agent_cost_cap_usd: 50
+    wall_clock_minutes: 180
+    cost_usd: 30
+    per_agent_cost_cap_usd: 8
 llm:
   default:
     model: spark-x2.6
@@ -24,103 +24,98 @@ llm:
   auto: null
   retry_ceiling_s: null
   system_instructions:
-    setup: "This task improves an ASR system inside a frozen runtime. Two assumptions do not hold here.\n\
-      1. Scoring is NOT a seconds-long CPU check. It loads an acoustic model and decodes audio on a GPU,\n\
-      \   and legitimately takes tens of minutes. Do not make it cheap and do not skip work.\n2. Scoring\
-      \ runs with NO network. Put every checkpoint named in models.json into the local cache\n   before\
-      \ you finish, and prove it loads offline. Otherwise every scored step fails.\nBefore anything else,\
-      \ replace models.json.target.backend with the real adapter for this host's\nruntime, or implement\
-      \ one under harness/backends/. `dummy` is an instrument self-test only.\nWrite private/score.py\
-      \ as a thin wrapper around the task's own harness: run\nharness/check_submission.py first; if its\
-      \ JSON `passed` is false return {'score': 0.0};\notherwise run harness/benchmark.py and return its\
-      \ `score`. Read their JSON, never their exit code.\nRecord speedup, wer_delta, wer_delta_ci, constraint_ok,\
-      \ gate_passed as components.\nUse example_submission/ as the baseline attempt: it is complete and\
-      \ scores ~1.00.\nThe metric is speedup and metric_direction is max, unless task.yaml says otherwise.\n\
-      benchmark.py --proxy sets `promote`; a full run sets it null. A proxy score is a filter,\nnever\
-      \ a final number, and the same seed and bootstrap settings must be used at both fidelities."
-    worker: 'Read task/README.md before changing anything: its measurement rules decide whether a number
+    setup: |
+      This task speeds up ASR inference inside a frozen runtime. Three facts about this host:
 
+      1. Scoring runs on CPU. It loads a 127MB int8 NeMo FastConformer CTC model covering ten
+         EU languages and decodes 60 utterances; one arm takes a couple of minutes, not tens.
+      2. Scoring runs with NO network. The 127MB bundle and the corpus must already be on disk
+         before you finish, and you must prove they load offline. data/fetch_local.sh does both.
+      3. The backend is already wired in models.json (sherpa_nemo_ctc). Do not swap the model:
+         the target is frozen, and swapping it is a different task.
+
+      Write private/score.py as a thin wrapper around the task's own harness: run
+      harness/check_submission.py first; if its JSON `passed` is false return {'score': 0.0};
+      otherwise run harness/benchmark.py and return its `score`. Read their JSON, never their
+      exit code. Record speedup, wer_delta, wer_delta_ci, constraint_ok, gate_passed as components.
+      Use task/example_submission as the baseline attempt: it is complete and scores ~1.00.
+      benchmark.py --proxy sets `promote`; a full run sets it null. A proxy score is a filter,
+      never a final number, and the same seed and bootstrap settings must be used at both fidelities.
+    worker: |
+      Read task/README.md before changing anything: its measurement rules decide whether a number
       means anything. Never edit models.json, task.yaml, or anything under harness/ - they are the
-
       instrument. Write your own implementation; do not copy code from elsewhere on this machine.
 
       Your submission is engine.py: build(cfg) -> Hooks, and only four hooks exist: configure,
-
       prepare, preprocess, postprocess. A lever that needs a fifth hook is a different task.
 
+      The host is CPU-only. Weights are already int8 and the decode is greedy CTC, so the levers
+      that exist are thread count and affinity, ORT graph optimisation and arena policy, sentence
+      batching, feature reuse across requests, and silence trimming. A dtype swap is not a lever
+      here and will be rejected as a change to the instrument.
+
       Export a complete submission directory every step, even an unambitious one. A step that
-
-      exports nothing is scored as nothing.
-
-      Your whole step - reading, editing, benchmarking, exporting - must fit in the step budget.
-
-      A step killed at its wall-clock limit loses its work; nothing resumes it. Export early and
-
-      improve with the time left.
+      exports nothing is scored as nothing. Your whole step - reading, editing, benchmarking,
+      exporting - must fit in the step budget. A step killed at its wall-clock limit loses its work;
+      nothing resumes it. Export early and improve with the time left.
 
       Before choosing a lever, measure the cost decomposition on this host: frontend, encoder,
-
-      decoder, post. State which slice your change targets and your predicted gain. A step that
-
-      leaves the score flat while measurably improving one slice is progress if you record it.
+      decoder, launch_bubble. State which slice your change targets and your predicted gain. A step
+      that leaves the score flat while measurably improving one slice is progress if you record it.
 
       The constraint is a paired WER interval, not a point estimate. A 3x speedup with a 0.5%
-
       WER regression scores zero. Check the interval before you declare a step successful.
-
       Intermediate steps use benchmark.py --proxy; only a promoted attempt gets a full-fidelity
-
-      measurement. Record every measurement with --archive, and when the frontier holds more
-
-      than one point, choose a parent off the Pareto front rather than the single top score.'
+      measurement. Record every measurement with --archive, and when the frontier holds more than
+      one point, choose a parent off the Pareto front rather than the single top score.
 work_units:
 - kind: llm_agent
   name: aggregator
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: coder
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: coder_review
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: committee
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: designer
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: designer_review
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: finalizer
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: judge
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: manager
@@ -131,67 +126,67 @@ work_units:
   name: meta
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: meta_review
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: planner
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: reviewer
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: reviser
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: reviser_review
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: router
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: selector
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: setup
   budget:
     kind: fixed
-    minutes: 120
+    minutes: 45
   retry: 0
 - kind: llm_agent
   name: setup_review
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: submitter
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: worker
@@ -203,19 +198,19 @@ work_units:
   name: worker_review
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: writer
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: writer_review
   budget:
     kind: fixed
-    minutes: 60
+    minutes: 25
   retry: 0
 - kind: program
   name: score_program

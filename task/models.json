@@ -3,7 +3,7 @@
   "target": {
     "backend": "sherpa_nemo_ctc",
     "entrypoint": "backends.sherpa_nemo_ctc:build",
-    "checkpoint": "/tmp/paddle/m10/sherpa-onnx-nemo-fast-conformer-ctc-be-de-en-es-fr-hr-it-pl-ru-uk-20k-int8",
+    "checkpoint": "~/asr-models/sherpa-onnx-nemo-fast-conformer-ctc-be-de-en-es-fr-hr-it-pl-ru-uk-20k-int8",
     "checkpoint_sha256": null,
     "sample_rate": 16000,
     "mode": "offline",

@@ -24,7 +24,11 @@ def duration(path: Path) -> float:
 
 
 def bucket(uid: str, salt: str, hidden_fraction: float) -> str:
-    h = int(hashlib.sha256(f"{salt}:{uid}".encode()).hexdigest()[:8], 16)
+    # Split by speaker, not by utterance: LibriSpeech ids look like
+    # 1272-128104-0000, and a per-utterance hash sends two sentences of the same
+    # speaker to opposite splits, which leaks the voice rather than the text.
+    key = uid.rsplit("-", 1)[0] if uid.count("-") >= 2 else uid
+    h = int(hashlib.sha256(f"{salt}:{key}".encode()).hexdigest()[:8], 16)
     return "hidden" if (h / 0xFFFFFFFF) < hidden_fraction else "dev"
 
 

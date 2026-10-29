@@ -42,7 +42,7 @@ class SherpaNemoCtcRuntime:
             raise ValueError(
                 "sherpa_nemo_ctc: set SHERPA_MODEL_DIR or models.json target.checkpoint"
             )
-        self.checkpoint = Path(root)
+        self.checkpoint = Path(os.path.expandvars(os.path.expanduser(root)))
         self.sample_rate = int(target.get("sample_rate") or 16000)
 
         onnx = self.checkpoint / "model.int8.onnx"
