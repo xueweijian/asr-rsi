@@ -17,6 +17,19 @@ if [[ "$PLAYGROUND" == "$REPO"/* ]]; then
   exit 2
 fi
 
+# Credentials for the model endpoint. A source build talks to whatever
+# Anthropic-compatible endpoint is configured; without one the run does not fail,
+# it retries forever at zero tokens.
+if [[ -f "$HOME/.asr-rsi.env" ]]; then
+  . "$HOME/.asr-rsi.env"
+fi
+if [[ -z "${AIBUILDAI_API_KEY:-}${ANTHROPIC_AUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ]] \
+   && [[ ! -s "$HOME/.aibuildai/claude_token" ]]; then
+  echo "no model credentials: export ANTHROPIC_AUTH_TOKEN (or AIBUILDAI_API_KEY), or put" >&2
+  echo "them in ~/.asr-rsi.env. A run without credentials retries forever at zero tokens." >&2
+  exit 3
+fi
+
 mkdir -p "$PLAYGROUND"
 sed -e "s|__REPO__|$REPO|g" -e "s|__PLAYGROUND__|$PLAYGROUND|g" "$CONFIG_SRC" > "$CONFIG_OUT"
 

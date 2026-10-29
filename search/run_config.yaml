@@ -65,12 +65,12 @@ run:
       than one point, choose a parent off the Pareto front rather than the single top score.'
 llm:
   default:
-    model: claude-opus-4-8
+    model: spark-x2.6
     effort: null
     max_thinking_tokens: null
   by_role:
     setup:
-      model: claude-sonnet-5
+      model: spark-x2.6
   auto: null
   retry_ceiling_s: null
   system_instructions:
