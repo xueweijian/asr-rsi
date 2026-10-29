@@ -1,0 +1,326 @@
+{
+  "score": 1.0152,
+  "gate_passed": true,
+  "gates": {
+    "fingerprint_match": true,
+    "transcript_ok": true,
+    "non_empty_output": true
+  },
+  "components": {
+    "speedup": 1.0152,
+    "speedup_latency": 1.0022,
+    "stock_wer": 0.048805,
+    "submission_wer": 0.048805,
+    "wer_delta": 0.0,
+    "wer_delta_ci": {
+      "mean": 0.0,
+      "lo": 0.0,
+      "hi": 0.0,
+      "samples": 2000,
+      "seed": 20261029
+    },
+    "wer_constraint_ok": true,
+    "memory_constraint_ok": true,
+    "noise_empty_rate_ok": true,
+    "noise_empty_rate": {
+      "status": "not_applicable",
+      "applicable": false,
+      "n": 0,
+      "threshold": 0.0,
+      "stock_empty_output_rate": null,
+      "submission_empty_output_rate": null,
+      "delta": null
+    },
+    "max_peak_rss_mb": null,
+    "constraint_ok": true,
+    "transcript_drift": 0.0,
+    "stock_latency": {
+      "utterances": 60,
+      "audio_seconds": 359.05,
+      "wall_seconds": 9.742,
+      "throughput": 36.8551,
+      "rtf": 0.0271,
+      "latency_ms": {
+        "p50": 129.87,
+        "p90": 300.93,
+        "max": 445.8
+      },
+      "profile": {
+        "encoder": {
+          "ms": 9017.8,
+          "share": 0.9256
+        },
+        "frontend": {
+          "ms": 693.5,
+          "share": 0.0712
+        },
+        "launch_bubble_ms": {
+          "ms": 30.9,
+          "share": 0.0032
+        },
+        "kv_bridge_ms": {
+          "ms": 0.0,
+          "share": 0.0,
+          "reported": false
+        }
+      },
+      "kv_bridge_reported": false,
+      "buckets": {
+        "long": {
+          "n": 9,
+          "throughput": 37.3584,
+          "empty_output_rate": 0.0
+        },
+        "medium": {
+          "n": 38,
+          "throughput": 36.9164,
+          "empty_output_rate": 0.0
+        },
+        "short": {
+          "n": 13,
+          "throughput": 34.6713,
+          "empty_output_rate": 0.0
+        }
+      }
+    },
+    "submission_latency": {
+      "utterances": 60,
+      "audio_seconds": 359.05,
+      "wall_seconds": 9.721,
+      "throughput": 36.9349,
+      "rtf": 0.0271,
+      "latency_ms": {
+        "p50": 130.64,
+        "p90": 298.85,
+        "max": 443.53
+      },
+      "profile": {
+        "encoder": {
+          "ms": 9009.4,
+          "share": 0.9268
+        },
+        "frontend": {
+          "ms": 690.6,
+          "share": 0.071
+        },
+        "launch_bubble_ms": {
+          "ms": 21.1,
+          "share": 0.0022
+        },
+        "kv_bridge_ms": {
+          "ms": 0.0,
+          "share": 0.0,
+          "reported": false
+        }
+      },
+      "kv_bridge_reported": false,
+      "buckets": {
+        "long": {
+          "n": 9,
+          "throughput": 37.5159,
+          "empty_output_rate": 0.0
+        },
+        "medium": {
+          "n": 38,
+          "throughput": 36.9699,
+          "empty_output_rate": 0.0
+        },
+        "short": {
+          "n": 13,
+          "throughput": 34.662,
+          "empty_output_rate": 0.0
+        }
+      }
+    },
+    "stock_throughput": {
+      "utterances": 60,
+      "audio_seconds": 359.05,
+      "wall_seconds": 15.788,
+      "throughput": 22.7416,
+      "rtf": 0.044,
+      "latency_ms": {
+        "p50": 207.23,
+        "p90": 493.38,
+        "max": 849.13
+      },
+      "profile": {
+        "launch_bubble_ms": {
+          "ms": 13072.2,
+          "share": 0.828
+        },
+        "encoder": {
+          "ms": 2006.5,
+          "share": 0.1271
+        },
+        "frontend": {
+          "ms": 709.6,
+          "share": 0.0449
+        },
+        "kv_bridge_ms": {
+          "ms": 0.0,
+          "share": 0.0,
+          "reported": false
+        }
+      },
+      "kv_bridge_reported": false,
+      "buckets": {
+        "long": {
+          "n": 9,
+          "throughput": 23.6144,
+          "empty_output_rate": 0.0
+        },
+        "medium": {
+          "n": 38,
+          "throughput": 22.3003,
+          "empty_output_rate": 0.0
+        },
+        "short": {
+          "n": 13,
+          "throughput": 22.7482,
+          "empty_output_rate": 0.0
+        }
+      }
+    },
+    "submission_throughput": {
+      "utterances": 60,
+      "audio_seconds": 359.05,
+      "wall_seconds": 15.552,
+      "throughput": 23.0868,
+      "rtf": 0.0433,
+      "latency_ms": {
+        "p50": 201.22,
+        "p90": 493.0,
+        "max": 848.48
+      },
+      "profile": {
+        "launch_bubble_ms": {
+          "ms": 12896.1,
+          "share": 0.8292
+        },
+        "encoder": {
+          "ms": 1978.5,
+          "share": 0.1272
+        },
+        "frontend": {
+          "ms": 677.6,
+          "share": 0.0436
+        },
+        "kv_bridge_ms": {
+          "ms": 0.0,
+          "share": 0.0,
+          "reported": false
+        }
+      },
+      "kv_bridge_reported": false,
+      "buckets": {
+        "long": {
+          "n": 9,
+          "throughput": 24.0019,
+          "empty_output_rate": 0.0
+        },
+        "medium": {
+          "n": 38,
+          "throughput": 22.6322,
+          "empty_output_rate": 0.0
+        },
+        "short": {
+          "n": 13,
+          "throughput": 23.0407,
+          "empty_output_rate": 0.0
+        }
+      }
+    },
+    "profile_stock": {
+      "encoder": {
+        "ms": 9017.8,
+        "share": 0.9256
+      },
+      "frontend": {
+        "ms": 693.5,
+        "share": 0.0712
+      },
+      "launch_bubble_ms": {
+        "ms": 30.9,
+        "share": 0.0032
+      },
+      "kv_bridge_ms": {
+        "ms": 0.0,
+        "share": 0.0,
+        "reported": false
+      }
+    },
+    "profile_submission": {
+      "encoder": {
+        "ms": 9009.4,
+        "share": 0.9268
+      },
+      "frontend": {
+        "ms": 690.6,
+        "share": 0.071
+      },
+      "launch_bubble_ms": {
+        "ms": 21.1,
+        "share": 0.0022
+      },
+      "kv_bridge_ms": {
+        "ms": 0.0,
+        "share": 0.0,
+        "reported": false
+      }
+    },
+    "kv_bridge_reported": {
+      "stock": false,
+      "submission": false
+    },
+    "paradigm": {
+      "declared": "NAR_CIF_CTC",
+      "source": "models.json"
+    },
+    "memory": {
+      "after_load_mb": 222.3,
+      "peak_mb": 470.3,
+      "delta_mb": 248.1
+    },
+    "cpu": {
+      "threads_requested": null,
+      "threads_applied": null,
+      "affinity_requested": null,
+      "affinity_effective": "0,238-239",
+      "notes": []
+    },
+    "repeat_spread_stock": {
+      "repeats": 5,
+      "throughput": [
+        37.3,
+        36.7,
+        36.5,
+        36.7,
+        36.7
+      ],
+      "spread": 0.0213
+    },
+    "repeat_spread_submission": {
+      "repeats": 5,
+      "throughput": [
+        36.7,
+        36.8,
+        36.7,
+        36.7,
+        36.7
+      ],
+      "spread": 0.0051
+    },
+    "stock_fingerprint": {
+      "params": 0,
+      "sha256": "14bedb3a400ac39d7d4aa74a87631353ecd4b06cf9ac990e1cdd3172206a80c3"
+    },
+    "submission_fingerprint": {
+      "params": 0,
+      "sha256": "14bedb3a400ac39d7d4aa74a87631353ecd4b06cf9ac990e1cdd3172206a80c3"
+    },
+    "fidelity": "full",
+    "utterances_scored": 60
+  },
+  "fidelity": "full",
+  "promote": null
+}

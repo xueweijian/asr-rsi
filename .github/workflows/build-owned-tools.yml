@@ -1,5 +1,8 @@
 name: build-owned-tools
 
+permissions:
+  contents: write
+
 # The CLI compiles its owned PostgreSQL from source (18.6). That takes a long
 # time on a laptop and cannot be mirror-accelerated, so it is built once here on
 # the oldest supported glibc and shipped as an artifact.

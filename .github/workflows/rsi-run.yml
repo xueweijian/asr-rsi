@@ -1,0 +1,107 @@
+name: rsi-run
+
+# The framework confines every work unit in a systemd user cgroup and refuses to
+# start without one ("resource governance is load-bearing"). This box has tini as
+# PID 1, so `aibuildai run` cannot execute here at all; a hosted runner is a real
+# systemd VM, so the loop runs there.
+
+on:
+  workflow_dispatch:
+    inputs:
+      wall_clock_minutes:
+        description: hard stop for the whole run
+        default: "60"
+      cost_usd:
+        description: total spend cap
+        default: "6"
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      AIBUILDAI_SKIP_SUBSCRIPTION_CHECK: "1"
+      XDG_RUNTIME_DIR: /run/user/1000
+      ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+      ANTHROPIC_SMALL_FAST_MODEL: spark-x2.6
+      SHERPA_MODEL_DIR: ${{ github.workspace }}/.models/sherpa-onnx-nemo-fast-conformer-ctc-be-de-en-es-fr-hr-it-pl-ru-uk-20k-int8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Framework + runtime
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install -q --upgrade pip
+          cp -r framework /tmp/framework
+          cd /tmp/framework
+          export AIBUILDAI_CLIPROXYAPI_SOURCE_COMMIT=$(python -c "import json;print(json.load(open('packages/conversation/src/aibuildai_conversation/_native/identity.json'))['commit'])")
+          pip install -q -e ./packages/execution -e ./packages/conversation -e .
+          cd "$GITHUB_WORKSPACE"
+          pip install -q sherpa-onnx soundfile numpy pyyaml
+          npm install -g @anthropic-ai/claude-code
+          aibuildai --version
+
+      - name: Owned tools (PostgreSQL 18.6)
+        run: |
+          aibuildai setup || true
+          ~/.aibuildai/tools/postgresql/18.6/bin/postgres --version
+
+      - name: Model
+        run: |
+          mkdir -p "$(dirname "$SHERPA_MODEL_DIR")"
+          if [ ! -f "$SHERPA_MODEL_DIR/model.int8.onnx" ]; then
+            curl -sSL -o /tmp/m.tar.bz2 \
+              "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-fast-conformer-ctc-be-de-en-es-fr-hr-it-pl-ru-uk-20k-int8.tar.bz2"
+            tar -xjf /tmp/m.tar.bz2 -C "$(dirname "$SHERPA_MODEL_DIR")"
+          fi
+          ls -lh "$SHERPA_MODEL_DIR"
+
+      - name: Corpus and manifests
+        run: |
+          . .venv/bin/activate
+          if [ ! -d /tmp/corpus/LibriSpeech ]; then
+            curl -sSL -o /tmp/dc.tar.gz https://www.openslr.org/resources/12/dev-clean.tar.gz
+            mkdir -p /tmp/corpus && tar -xzf /tmp/dc.tar.gz -C /tmp/corpus
+          fi
+          python data/prepare_librispeech.py /tmp/corpus/LibriSpeech/dev-clean /tmp/corpus/wav \
+            --limit-chapters 6 --max-utts 260
+          python data/make_manifest.py /tmp/corpus/wav --out data/dev_manifest.jsonl --split dev --lang en
+          python data/make_manifest.py /tmp/corpus/wav --out data/hidden_manifest.jsonl --split hidden --lang en
+          wc -l data/dev_manifest.jsonl data/hidden_manifest.jsonl
+
+      - name: Render config
+        run: |
+          sed -e "s|__REPO__|$GITHUB_WORKSPACE|g" -e "s|__PLAYGROUND__|$GITHUB_WORKSPACE/playground|g" \
+            search/run_config.yaml > /tmp/run.yaml
+          sed -i \
+            -e "s|wall_clock_minutes: 180|wall_clock_minutes: ${{ inputs.wall_clock_minutes }}|" \
+            -e "s|cost_usd: 30|cost_usd: ${{ inputs.cost_usd }}|" \
+            -e "s|per_agent_cost_cap_usd: 8|per_agent_cost_cap_usd: 2|" \
+            -e "s|minutes: 25|minutes: 10|" \
+            -e "s|max_minutes: 600|max_minutes: 60|" /tmp/run.yaml
+          grep -E "wall_clock|cost_usd|playground_root|data_root" /tmp/run.yaml
+
+      - name: Run
+        run: |
+          . .venv/bin/activate
+          aibuildai run /tmp/run.yaml 2>&1 | tee /tmp/run.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rsi-run
+          path: |
+            playground/**/workspace/**
+            playground/**/resource_samples.jsonl
+            data/*_manifest.jsonl
+            /tmp/run.log
+          retention-days: 30

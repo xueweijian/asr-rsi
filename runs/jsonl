@@ -1,0 +1,1 @@
+{"ts": "2026-10-29T23:51:26", "fidelity": "full", "score": 1.0152, "speedup": 1.0152, "wer_delta": 0.0, "wer_ci_hi": 0.0, "constraint_ok": true, "gate_passed": true, "launch_bubble_share": 0.0022, "utterances": 60, "peak_rss_mb": 470.3, "after_load_mb": 222.3, "models": "models.json"}
