@@ -51,6 +51,33 @@ class Runtime(Protocol):
     # in the adapter, not in the submission.
 
 
+PARADIGMS = ("AED", "SPEECH_LLM", "TRANSDUCER", "NAR_CIF_CTC", "HYBRID")
+
+
+def validate_paradigm_value(value: Any, where: str = "target.paradigm") -> str | None:
+    """Reject an unknown paradigm string loudly. null/None is always allowed."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in PARADIGMS:
+        raise ValueError(
+            f"unknown {where} {value!r}; allowed: {list(PARADIGMS)} or null"
+        )
+    return value
+
+
+def declared_paradigm(cfg: dict) -> str | None:
+    """The paradigm models.json declares, validated. Absent == null."""
+    return validate_paradigm_value((cfg.get("target") or {}).get("paradigm"))
+
+
+def runtime_paradigm(runtime: Any) -> str | None:
+    """Optional adapter declaration: an attribute or a zero-arg method."""
+    value = getattr(runtime, "paradigm", None)
+    if callable(value):
+        value = value()
+    return validate_paradigm_value(value, where=f"{type(runtime).__name__}.paradigm")
+
+
 class Hooks:
     """Default is a no-op pass-through. A submission overrides any subset."""
 
@@ -96,6 +123,7 @@ def build_runtime(cfg: dict, submission_dir: str | Path | None) -> tuple[Any, Ho
     Returns (runtime, hooks, effective_cfg). The stock arm always gets plain Hooks, so
     an unmodified plugin cannot accidentally disqualify the baseline.
     """
+    declared_paradigm(cfg)      # fail loudly on an unknown target.paradigm
     adapter = _import_path(cfg["target"]["entrypoint"].split(":")[0])
     factory_name = cfg["target"]["entrypoint"].split(":")[1]
     runtime = getattr(adapter, factory_name)(cfg)
@@ -139,4 +167,5 @@ def _guard_tunables(frozen: dict, proposed: dict) -> None:
         )
 
 
-__all__ = ["Request", "Result", "Runtime", "Hooks", "build_runtime", "load_audio"]
+__all__ = ["Request", "Result", "Runtime", "Hooks", "build_runtime", "declared_paradigm",
+           "load_audio", "runtime_paradigm", "validate_paradigm_value"]

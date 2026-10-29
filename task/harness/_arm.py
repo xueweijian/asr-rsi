@@ -21,9 +21,11 @@ HERE = Path(__file__).resolve().parent
 TASK = HERE.parent
 sys.path.insert(0, str(HERE))
 
-from backends.base import Request, build_runtime, load_audio  # noqa: E402
+from backends.base import (  # noqa: E402
+    Request, build_runtime, declared_paradigm, load_audio, runtime_paradigm,
+)
 from instrument import (  # noqa: E402
-    MemorySampler, bucket_of, load_manifest, rss_mb, write_json,
+    MemorySampler, bucket_for, load_manifest, rss_mb, write_json,
 )
 
 
@@ -69,9 +71,18 @@ def main() -> int:
     rows = load_manifest(args.manifest, args.limit)
     if not rows:
         raise SystemExit("empty manifest")
+    bucket_by_id = {r["id"]: r.get("bucket") for r in rows}
 
     runtime, _hooks, _cfg = build_runtime(cfg, args.submission)
     fp = runtime.fingerprint()
+
+    models_paradigm = declared_paradigm(cfg)
+    adapter_paradigm = runtime_paradigm(runtime)
+    paradigm = {
+        "declared": models_paradigm if models_paradigm is not None else adapter_paradigm,
+        "source": ("models.json" if models_paradigm is not None
+                   else "adapter" if adapter_paradigm is not None else None),
+    }
 
     # Memory: baseline after load/prepare, transients sampled during the timed
     # workload, final read after the loop. The sampler stops even on failure.
@@ -97,18 +108,28 @@ def main() -> int:
                     raise RuntimeError(f"runtime returned {len(results)} results for {len(batch)} requests")
                 total_dur = sum(r.duration for r in batch) or 1.0
                 by_id = {r.id: r for r in batch}
+                # batch wall time minus everything the adapter reported is host-side
+                # launch/sync overhead; attribute both by audio share so totals hold.
+                parts_total_ms = sum(
+                    float(v) for res in results
+                    for v in (res.meta.get("profile_ms") or {}).values()
+                )
+                bubble_ms = max(0.0, dt_ms - parts_total_ms)
                 for res in results:
                     req = by_id[res.id]
-                    # attribute batch wall time by audio share; totals are preserved
                     share = (req.duration / total_dur) if req.duration else 1.0 / len(batch)
-                    prof = res.meta.get("profile_ms") or {}
+                    prof = {k: float(v) for k, v in (res.meta.get("profile_ms") or {}).items()}
+                    out_prof = {k: v * share for k, v in prof.items()}
+                    out_prof["kv_bridge_ms"] = out_prof.get("kv_bridge_ms", 0.0)
+                    out_prof["launch_bubble_ms"] = bubble_ms * share
                     out_rows.append({
                         "id": req.id, "repeat": rep, "batch": len(batch),
                         "audio_s": req.duration,
                         "wall_ms": dt_ms * share,
-                        "profile_ms": {k: float(v) * share for k, v in prof.items()},
+                        "profile_ms": out_prof,
+                        "kv_bridge_reported": "kv_bridge_ms" in prof,
                         "text": res.text,
-                        "bucket": bucket_of(req.duration, buckets),
+                        "bucket": bucket_for(bucket_by_id.get(req.id), req.duration, buckets),
                     })
     finally:
         transient_peak = sampler.stop()
@@ -127,6 +148,7 @@ def main() -> int:
         "batch": args.batch,
         "repeats": args.repeats,
         "memory": memory,
+        "paradigm": paradigm,
         "git_sha": _git_sha(),
     })
     return 0

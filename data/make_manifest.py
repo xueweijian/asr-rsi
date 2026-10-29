@@ -36,6 +36,9 @@ def main() -> int:
     ap.add_argument("--text-ext", default=".txt")
     ap.add_argument("--lang", default=None)
     ap.add_argument("--split", default="dev", choices=["dev", "hidden", "all"])
+    ap.add_argument("--bucket", default=None,
+                    help="explicit bucket label for every row (e.g. noise); the scorer "
+                         "uses it instead of the duration-derived bucket")
     ap.add_argument("--hidden-fraction", type=float, default=0.2)
     ap.add_argument("--salt", default="asr-rsi-2026")
     ap.add_argument("--root-relative-to", default=None)
@@ -59,6 +62,7 @@ def main() -> int:
             "text": text.read_text(encoding="utf-8").strip(),
             "duration": round(duration(audio), 3),
             "lang": args.lang,
+            **({"bucket": args.bucket} if args.bucket else {}),
         })
 
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -138,6 +138,18 @@ def bucket_of(duration: float, buckets: dict[str, list[float]]) -> str:
     return "long"
 
 
+def bucket_for(row_bucket: str | None, duration: float, buckets: dict[str, list[float]]) -> str:
+    """An explicit manifest bucket wins; otherwise fall back to the duration bucket."""
+    return row_bucket if row_bucket else bucket_of(duration, buckets)
+
+
+def empty_output_rate(rows: list[dict]) -> float:
+    """Fraction of utterances whose normalized transcript is empty."""
+    if not rows:
+        return 0.0
+    return sum(1 for r in rows if not normalize(r.get("text") or "", "lower")) / len(rows)
+
+
 def throughput(audio_seconds: float, wall_seconds: float) -> float:
     if wall_seconds <= 0:
         return 0.0
@@ -330,22 +342,44 @@ def summarize_arm(rows: list[dict]) -> dict:
     p = lambda q: lat[min(len(lat) - 1, int(q * len(lat)))] if lat else 0.0
     buckets: dict[str, dict] = {}
     for r in rows:
-        b = buckets.setdefault(r["bucket"], {"audio_s": 0.0, "wall_s": 0.0, "n": 0})
+        b = buckets.setdefault(r["bucket"], {"audio_s": 0.0, "wall_s": 0.0, "n": 0, "empty": 0})
         b["audio_s"] += r["audio_s"]
         b["wall_s"] += r["wall_ms"] / 1000.0
         b["n"] += 1
+        if not normalize(r.get("text") or "", "lower"):
+            b["empty"] += 1
     for b in buckets.values():
         b["throughput"] = throughput(b["audio_s"], b["wall_s"])
+        b["empty_output_rate"] = b["empty"] / b["n"] if b["n"] else 0.0
     prof: dict[str, float] = {}
     for r in rows:
         for k, v in (r.get("profile_ms") or {}).items():
             prof[k] = prof.get(k, 0.0) + float(v)
-    total_prof = sum(prof.values())
-    profile = (
-        {k: {"ms": round(v, 1), "share": round(v / total_prof, 4)}
-         for k, v in sorted(prof.items(), key=lambda kv: -kv[1])}
-        if total_prof else {}
-    )
+    wall_ms_total = sum(r["wall_ms"] for r in rows)
+    kv_reported = any(r.get("kv_bridge_reported") for r in rows)
+    # launch_bubble is the residual of the measured wall time over everything the
+    # adapter reported. Recompute it from the aggregate so the parts and the bubble
+    # are coherent even when rows were collapsed to medians across repeats.
+    if wall_ms_total > 0:
+        parts_ms = sum(v for k, v in prof.items() if k != "launch_bubble_ms")
+        prof["launch_bubble_ms"] = max(0.0, wall_ms_total - parts_ms)
+    # Shares use the measured wall time as denominator, so the reported parts plus
+    # launch_bubble sum to 1.0 (100%). A zero wall leaves the channel empty.
+    profile = {}
+    if wall_ms_total > 0 and prof:
+        items = sorted(prof.items(), key=lambda kv: -kv[1])
+        profile = {k: {"ms": round(v, 1), "share": round(v / wall_ms_total, 4)}
+                   for k, v in items}
+        if "launch_bubble_ms" in profile:
+            # bubble is the residual: parts + bubble = 100%
+            other = sum(x["share"] for k, x in profile.items() if k != "launch_bubble_ms")
+            profile["launch_bubble_ms"]["share"] = round(max(0.0, 1.0 - other), 4)
+        total = sum(x["share"] for x in profile.values())
+        if abs(total - 1.0) > 1e-9:
+            first = next(iter(profile))
+            profile[first]["share"] = round(profile[first]["share"] + (1.0 - total), 4)
+        if "kv_bridge_ms" in profile:
+            profile["kv_bridge_ms"]["reported"] = kv_reported
     return {
         "utterances": len(rows),
         "audio_seconds": round(audio, 3),
@@ -354,8 +388,10 @@ def summarize_arm(rows: list[dict]) -> dict:
         "rtf": round(wall / audio, 4) if audio else 0.0,
         "latency_ms": {"p50": round(p(0.5), 2), "p90": round(p(0.9), 2), "max": round(p(1.0), 2)},
         "profile": profile,
+        "kv_bridge_reported": kv_reported,
         "buckets": {
-            k: {"n": v["n"], "throughput": round(v["throughput"], 4)}
+            k: {"n": v["n"], "throughput": round(v["throughput"], 4),
+                "empty_output_rate": round(v["empty_output_rate"], 4)}
             for k, v in sorted(buckets.items())
         },
     }
@@ -410,8 +446,8 @@ def geometric_mean(values: list[float]) -> float:
 
 
 __all__ = [
-    "Interval", "MemorySampler", "apply_cpu_policy", "asdict", "bucket_of",
-    "corpus_error", "geometric_mean", "load_manifest", "normalize",
+    "Interval", "MemorySampler", "apply_cpu_policy", "asdict", "bucket_for", "bucket_of",
+    "corpus_error", "empty_output_rate", "geometric_mean", "load_manifest", "normalize",
     "paired_bootstrap", "parse_affinity", "repeat_spread", "rss_mb",
     "summarize_arm", "throughput", "utterance_error", "write_json",
 ]

@@ -17,6 +17,10 @@ constraint:
   seed: 20261029
   # optional memory gate: peak RSS of the submission arm; null = not gated
   max_peak_rss_mb: null
+  # optional hallucination gate on explicit noise rows: a submission may not emit
+  # more empty transcripts than stock. 0.0 means "no worse than stock".
+  # With no rows labelled bucket: noise the gate reports not_applicable.
+  max_noise_empty_rate_delta: 0.0
 
 measurement:
   dev_manifest: data/dev_manifest.jsonl         # the agent may read this

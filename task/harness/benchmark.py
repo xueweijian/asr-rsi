@@ -26,9 +26,10 @@ TASK = HERE.parent
 sys.path.insert(0, str(HERE))
 
 from instrument import (  # noqa: E402
-    apply_cpu_policy, corpus_error, load_manifest, paired_bootstrap, repeat_spread,
-    summarize_arm, write_json,
+    apply_cpu_policy, corpus_error, empty_output_rate, load_manifest, paired_bootstrap,
+    repeat_spread, summarize_arm, write_json,
 )
+from backends.base import declared_paradigm  # noqa: E402
 
 REQUIRED_HOOKS = ("configure", "prepare", "preprocess", "postprocess")
 
@@ -54,14 +55,20 @@ def run_arm(models: Path, task: Path, manifest: Path, out: Path, submission: Pat
 
 
 def median_rows(rows: list[dict]) -> list[dict]:
-    """Collapse repeats to one row per utterance: median wall, first transcript."""
+    """Collapse repeats to one row per utterance: median wall and median profile,
+    first transcript. Medianing the profile keeps the decomposition aligned with the
+    wall number whose tabs it splits."""
     by_id: dict[str, list[dict]] = {}
     for r in rows:
         by_id.setdefault(r["id"], []).append(r)
     out = []
     for rid, rs in by_id.items():
         first = rs[0]
-        out.append({**first, "wall_ms": statistics.median(x["wall_ms"] for x in rs)})
+        keys = {k for x in rs for k in (x.get("profile_ms") or {})}
+        prof = {k: statistics.median((x.get("profile_ms") or {}).get(k, 0.0) for x in rs)
+                for k in keys}
+        out.append({**first, "wall_ms": statistics.median(x["wall_ms"] for x in rs),
+                    "profile_ms": prof})
     return out
 
 
@@ -109,6 +116,7 @@ def main() -> int:
     import yaml
     task = yaml.safe_load(Path(args.task).read_text())
     models = json.loads(Path(args.models).read_text())
+    declared_paradigm(models)                   # fail loudly on an unknown paradigm
     m = task["measurement"]
     cpu = apply_cpu_policy(m.get("cpu") or {})   # before any backend loads
     repeats = int(m["repeats"])
@@ -121,8 +129,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="asr_rsi_bench_") as tmp_s:
         tmp = Path(tmp_s)
         if args.selftest:
-            manifest = selftest_manifest(tmp)
-            limit = None
+            # A caller-supplied manifest lets the self-test exercise noise buckets,
+            # empty transcripts and the gate without any real audio.
+            manifest = Path(args.manifest) if args.manifest else selftest_manifest(tmp)
+            limit = args.limit
         else:
             manifest = Path(args.manifest or (TASK.parent / m["dev_manifest"]))
             limit = args.limit if args.limit is not None else m.get("max_utterances_dev")
@@ -190,7 +200,35 @@ def main() -> int:
     peak_mb = mem.get("peak_mb")
     mem_cap = task["constraint"].get("max_peak_rss_mb")
     memory_ok = mem_cap is None or peak_mb is None or float(peak_mb) <= float(mem_cap)
-    limit_ok = wer_ok and memory_ok
+
+    # Noise/silence gate: a submission may not hallucinate more empty transcripts on
+    # explicit noise rows than stock. Shares the constraint verdict, not the WER gate.
+    noise_ids = {r["id"] for r in rows if r.get("bucket") == "noise"}
+    noise_cap = float(task["constraint"].get("max_noise_empty_rate_delta", 0.0))
+    if noise_ids:
+        stock_empty = empty_output_rate([r for r in s_rows if r["id"] in noise_ids])
+        sub_empty = empty_output_rate([r for r in u_rows if r["id"] in noise_ids])
+        noise_delta = sub_empty - stock_empty
+        noise_ok = noise_delta <= noise_cap
+        noise_gate = {
+            "status": "passed" if noise_ok else "failed",
+            "applicable": True,
+            "n": len(noise_ids),
+            "threshold": noise_cap,
+            "stock_empty_output_rate": round(stock_empty, 4),
+            "submission_empty_output_rate": round(sub_empty, 4),
+            "delta": round(noise_delta, 4),
+        }
+    else:
+        noise_delta = None
+        noise_ok = True
+        noise_gate = {
+            "status": "not_applicable", "applicable": False, "n": 0,
+            "threshold": noise_cap, "stock_empty_output_rate": None,
+            "submission_empty_output_rate": None, "delta": None,
+        }
+
+    limit_ok = wer_ok and memory_ok and noise_ok
 
     result = {
         "score": 0.0,
@@ -206,6 +244,8 @@ def main() -> int:
                              "hi": round(ci.hi, 6), "samples": ci.samples, "seed": ci.seed},
             "wer_constraint_ok": wer_ok,
             "memory_constraint_ok": memory_ok,
+            "noise_empty_rate_ok": noise_ok,
+            "noise_empty_rate": noise_gate,
             "max_peak_rss_mb": mem_cap,
             "constraint_ok": limit_ok,
             "transcript_drift": round(drift, 6),
@@ -215,6 +255,11 @@ def main() -> int:
             "submission_throughput": sub_thr,
             "profile_stock": stock_lat.get("profile", {}),
             "profile_submission": sub_lat.get("profile", {}),
+            "kv_bridge_reported": {
+                "stock": stock_lat.get("kv_bridge_reported", False),
+                "submission": sub_lat.get("kv_bridge_reported", False),
+            },
+            "paradigm": stock.get("paradigm") or {"declared": None, "source": None},
             "memory": mem,
             "cpu": cpu,
             "repeat_spread_stock": repeat_spread(stock["rows"]),
@@ -245,6 +290,11 @@ def main() -> int:
                 reasons.append("constraint")
             if not memory_ok:
                 reasons.append(f"memory {float(peak_mb):.1f}MB > {float(mem_cap):.1f}MB")
+            if not noise_ok:
+                reasons.append(
+                    f"noise_empty_rate delta {noise_delta:.4f} > {noise_cap:.4f} "
+                    f"on {len(noise_ids)} noise rows"
+                )
             result["reason"] = "; ".join(reasons)
 
     # Multi-fidelity: a proxy step only asks "is this worth a full measurement?"
@@ -259,6 +309,7 @@ def main() -> int:
 
     if args.archive:
         from archive import append
+        bubble = (sub_lat.get("profile", {}).get("launch_bubble_ms") or {}).get("share")
         append(args.archive, {
             "fidelity": result["fidelity"],
             "score": result["score"],
@@ -267,6 +318,7 @@ def main() -> int:
             "wer_ci_hi": round(ci.hi, 6),
             "constraint_ok": limit_ok,
             "gate_passed": gate_passed,
+            "launch_bubble_share": bubble,
             "utterances": stock_lat["utterances"],
             "peak_rss_mb": peak_mb,
             "after_load_mb": mem.get("after_load_mb"),

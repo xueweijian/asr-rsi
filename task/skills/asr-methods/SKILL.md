@@ -57,3 +57,20 @@ Measure, in one step: time in the frontend, time in the encoder, time in the dec
 and time in text post-processing. Whichever slice dominates bounds what any single
 lever can buy. A submission that improves a 10% slice by 2x is a 5% submission, and
 that is a fine intermediate step if you say so.
+
+## Routing priors
+
+Read the verified paradigm map in `references.md` (rows are keyed by the target's
+declared paradigm; `components.paradigm` says which source declared it). These are
+priors, not findings: check the reported shares before acting.
+
+- **TRANSDUCER**: do not train draft heads first. The bottleneck is usually the
+  host-side launch bubble; check `launch_bubble` share first and only touch decoding
+  when the decoder dominates.
+- **NAR_CIF_CTC**: there is no autoregressive loop, so speculative decoding is
+  structurally negative. Spend the step on encoder/parallel-decoding work instead.
+- **AED / SPEECH_LLM**: decoder-side speculation can pay only when the decoder share
+  dominates and `launch_bubble` is small; otherwise the same bubble caps the gain.
+- **HYBRID / unavailable paradigm**: decompose per bucket and treat the dominant
+  reported stage as the lever, never the paper's headline.
+

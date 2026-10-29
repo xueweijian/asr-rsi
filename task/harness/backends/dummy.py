@@ -23,6 +23,8 @@ def synth_text(seconds: float, seed: str = "") -> str:
 
 
 class DummyRuntime:
+    paradigm = None     # the self-test backend declares no real ASR paradigm
+
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self._loaded = False

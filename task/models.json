@@ -14,6 +14,8 @@
     },
     "max_audio_seconds": 30.0,
     "language": null,
+    "paradigm": null,
+    "paradigm_note": "Optional target paradigm: AED | SPEECH_LLM | TRANSDUCER | NAR_CIF_CTC | HYBRID | null. An adapter may declare the same via its `paradigm` attribute; models.json wins when both are set.",
     "device": "cuda:0",
     "decode": {
       "beam_size": 5,

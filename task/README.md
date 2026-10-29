@@ -82,6 +82,20 @@ is optional and defaults to `null`; when set, a submission whose peak exceeds it
 the constraint exactly like a WER violation, with a reason such as
 `memory 842.0MB > 800.0MB`.
 
+### Noise rows and the hallucination gate
+
+A manifest row may carry an explicit `bucket` label (`data/make_manifest.py --bucket
+noise` writes it); the scorer uses that label instead of the duration-derived bucket.
+Every bucket reports `n`, `throughput` and `empty_output_rate` (the fraction of
+utterances whose normalized transcript is empty) for both arms.
+
+`constraint.max_noise_empty_rate_delta` (default `0.0`) gates the same constraint as
+WER and memory. When at least one `bucket: noise` row exists, the run fails if
+`submission empty rate on noise - stock empty rate on noise` exceeds the value, with
+a distinct reason such as `noise_empty_rate delta 0.1000 > 0.0000 on 12 noise rows`.
+With no noise rows the gate reports `status: not_applicable` under
+`components.noise_empty_rate` and cannot fail anything.
+
 The CPU policy lives under `measurement.cpu` and is applied once, before any backend
 loads: `threads: <int>` sets `OMP/MKL/OPENBLAS/NUMEXPR_NUM_THREADS` only where the
 caller has not already set them, and `affinity: "0-3"` (or `"0,2,4"`) calls
@@ -108,7 +122,7 @@ only when the task's objective is `wer`; otherwise the gate reports
 | `harness/instrument.py` | WER/CER, paired bootstrap, RTF and bucket statistics, RSS sampling, CPU policy |
 | `harness/artifacts.py` | writes `plan.json`, `config.patch`, `report.md`, `repro.sh` for a passing full measurement |
 | `harness/backends/` | runtime adapters. `dummy` exists only to self-test the instrument |
-| `data/make_manifest.py` | builds `manifest.jsonl` from a directory of `*.wav` + `*.txt` |
+| `data/make_manifest.py` | builds `manifest.jsonl` from a directory of `*.wav` + `*.txt`; `--bucket noise` labels explicit noise rows |
 
 ```
 python harness/check_submission.py --submission <attempt>/full   # minutes
@@ -122,13 +136,24 @@ python harness/benchmark.py --submission <attempt>/full --artifacts <dir>  # ful
 Two signals exist so a step can be judged on *why* it moved, not only on a scalar:
 
 * `components.profile_stock` / `profile_submission` — per-stage milliseconds and their
-  share, when the adapter fills `Result.meta["profile_ms"]`. An adapter that does not
-  fill it is still valid; the channel is then empty.
+  share, when the adapter fills `Result.meta["profile_ms"]`. The share denominator is
+  the **wall time of the transcribe call**, not the sum of the parts: `launch_bubble_ms`
+  = `max(0, wall - reported parts)` is the host-side loop/sync overhead, so the shares
+  of the reported parts plus `launch_bubble_ms` sum to 1.0. `kv_bridge_ms` is an
+  optional reported component; when absent it is `0.0` and marked `reported: false`.
+  An adapter that reports no profile still gets the bubble share (all wall time is
+  unattributed).
+* `components.paradigm` — `{"declared": <paradigm|null>, "source": "models.json" |
+  "adapter" | null}`. `models.json.target.paradigm` may be `AED`, `SPEECH_LLM`,
+  `TRANSDUCER`, `NAR_CIF_CTC`, `HYBRID` or `null`; an unknown string fails loudly.
+  A runtime adapter may declare the same via a `paradigm` attribute or zero-arg method;
+  `models.json` wins when both are present.
 * `components.repeat_spread_*` — per-repeat throughputs and relative spread. A spread
   above 2% means the host is noisy and the ratio should not be believed yet.
 * `--proxy` scores only `measurement.proxy_utterances` and sets `promote`; a full-fidelity
   slot should be spent only on promoted attempts. `--archive` appends to a Pareto
-  archive, so the selector can pick parents off the frontier.
+  archive (including `launch_bubble_share`), so the selector can pick parents off the
+  frontier.
 
 ## Pointing this task at a different ASR target
 
@@ -160,6 +185,8 @@ the loaded weights.
   lazily. `measurement.warmup_utterances` is not optional.
 * **Bucket by audio length.** Padding every clip to the model's fixed window hides the
   single largest real win on short audio; an un-bucketed mean will report a flat score.
+  A row's explicit `bucket` label overrides the duration bucket; the reported block
+  carries `n`, `throughput` and `empty_output_rate` per bucket.
 * **Scoring runs with no network.** Every checkpoint must already be in the local
   cache and must load with local files only.
 * **The stock arm is part of the instrument.** If your stock arm drifts >2% across
