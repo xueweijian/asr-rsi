@@ -1,0 +1,6 @@
+{
+  "summary": "Baseline pass-through: no hook changes anything. Expected speedup 1.00 and WER delta 0.",
+  "changes": [],
+  "extra_weights_bytes": 0,
+  "tunable_overrides": {}
+}

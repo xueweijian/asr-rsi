@@ -1,0 +1,54 @@
+# The task is declared here and in models.json. Nothing else in this folder may
+# hard-code a model, a runtime, or a language.
+
+task: asr-rsi
+
+# speedup  -- maximize throughput inside the frozen runtime, WER constrained
+# wer      -- maximize accuracy, speed is reported but not scored
+# rtf      -- maximize real-time factor gain, WER constrained
+objective: speedup
+
+constraint:
+  metric: wer                 # wer | cer. cer is the right choice for CJK-only sets
+  max_delta_abs: 0.003        # absolute, not relative
+  confidence: 0.95
+  paired: true                # resample utterance pairs, never independent arms
+  bootstrap_samples: 2000
+  seed: 20261029
+
+measurement:
+  dev_manifest: data/dev_manifest.jsonl         # the agent may read this
+  hidden_manifest: data/hidden_manifest.jsonl   # scorer only; never on the agent's box
+  warmup_utterances: 50
+  repeats: 5                  # median over repeats, alternating arms when possible
+  batch_size_latency: 1
+  batch_size_throughput: 8
+  max_utterances_dev: 1000    # cap for the cheap proxy measurement
+  # multi-fidelity: a proxy step decides whether a lever deserves a full measurement;
+  # only a promoted step is allowed to consume a full-fidelity slot
+  proxy_utterances: 300
+  proxy_min_speedup: 1.05
+  # text normalization is per-utterance: rows with lang zh/yue/ja/ko use the CJK
+  # mode (CER-friendly, no case, no word boundaries), everything else the default
+  text_normalization: lower
+  cjk_normalization: plain
+  buckets:                    # reported separately; never averaged away
+    short: [0.0, 3.0]
+    medium: [3.0, 10.0]
+    long: [10.0, 100000.0]
+
+scoring:
+  # a failing constraint zeroes the score, exactly like a gate failure
+  on_constraint_violation: zero
+  # a pure-systems submission should reproduce the stock transcript exactly;
+  # a tiny tolerance covers fp16 tie-flips from reordered batched math
+  allow_transcript_drift: false
+  transcript_drift_tolerance: 0.005
+
+submission:
+  layout: <attempt>/full/
+  entrypoint: engine.py:build
+  may_change_weights: false
+  weight_fingerprint_tolerance: 1.0e-6
+  # scan for these at build time; any hit fails the gate
+  forbidden_imports: [socket, requests, urllib, http, ftplib, transformers.pipelines]

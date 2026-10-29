@@ -1,13 +1,10 @@
-# head weights are distributed as a release asset, not in git (see heads/README.md)
-heads/*.pt
-heads/*.safetensors
-
+# fork-specific
 __pycache__/
 *.pyc
-eval/results/
-
-# framework snapshot artefacts
-framework/**/__pycache__/
-framework/aibuildai.egg-info/
-framework/build/
-framework/dist/
+*.pyo
+.pytest_cache/
+archive.jsonl
+playground/
+*.egg-info/
+build/
+dist/
