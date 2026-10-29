@@ -64,7 +64,7 @@ jobs:
       - name: Baseline measurement
         run: |
           python task/harness/benchmark.py \
-            --submission task/harness/example_submission \
+            --submission task/example_submission \
             --limit 60 --archive runs/jsonl \
             --artifacts runs/artifacts --json runs/baseline.json
 
