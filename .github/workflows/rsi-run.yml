@@ -41,6 +41,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Secrets pasted from a phone often carry a trailing newline, and systemd
+      # refuses any env value that contains one.
+      - name: Sanitize secrets
+        run: |
+          printf 'ANTHROPIC_BASE_URL=%s\n' "$(printf '%s' "$ANTHROPIC_BASE_URL" | tr -d '\r\n' | xargs)" >> "$GITHUB_ENV"
+          printf 'ANTHROPIC_AUTH_TOKEN=%s\n' "$(printf '%s' "$ANTHROPIC_AUTH_TOKEN" | tr -d '\r\n' | xargs)" >> "$GITHUB_ENV"
+          echo "base_url bytes: $(printf '%s' "$ANTHROPIC_BASE_URL" | wc -c)"
+
       - name: Framework + runtime
         run: |
           python -m venv .venv
