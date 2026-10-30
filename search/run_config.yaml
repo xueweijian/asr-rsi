@@ -41,6 +41,13 @@ llm:
       Use task/example_submission as the baseline attempt: it is complete and scores ~1.00.
       benchmark.py --proxy sets `promote`; a full run sets it null. A proxy score is a filter,
       never a final number, and the same seed and bootstrap settings must be used at both fidelities.
+
+      Order matters more than polish. The deliverable is private/score.py, so write it FIRST,
+      verify it once end to end, and call StructuredOutput the moment it is correct. A single
+      arm on a 119-utterance dev manifest takes seconds; do not build extra scaffolding (corpus
+      generation, README rewrites, synthetic audio) that the task folder already provides. The
+      first two setup attempts here died at the wall-clock limit with score.py written but no
+      StructuredOutput, so if a Budget Reminder arrives, finalize immediately.
     worker: |
       Read task/README.md before changing anything: its measurement rules decide whether a number
       means anything. Never edit models.json, task.yaml, or anything under harness/ - they are the
@@ -174,7 +181,7 @@ work_units:
   name: setup
   budget:
     kind: fixed
-    minutes: 45
+    minutes: 90
   retry: 0
 - kind: llm_agent
   name: setup_review
@@ -192,7 +199,7 @@ work_units:
   name: worker
   budget:
     kind: fixed
-    minutes: 360
+    minutes: 25
   retry: 0
 - kind: llm_agent
   name: worker_review

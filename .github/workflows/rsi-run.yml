@@ -15,16 +15,16 @@ on:
     inputs:
       wall_clock_minutes:
         description: hard stop for the whole run
-        default: "300"
+        default: "330"
       cost_usd:
         description: total spend cap
-        default: "80"
+        default: "120"
       worker_minutes:
         description: wall clock per work unit
-        default: "35"
+        default: "45"
       per_agent_cost_cap_usd:
         description: spend cap per agent
-        default: "20"
+        default: "30"
 
 permissions:
   contents: write
@@ -109,10 +109,10 @@ jobs:
           sed -e "s|__REPO__|$GITHUB_WORKSPACE|g" -e "s|__PLAYGROUND__|$GITHUB_WORKSPACE/playground|g" \
             search/run_config.yaml > /tmp/run.yaml
           sed -i \
-            -e "s|wall_clock_minutes: 180|wall_clock_minutes: ${{ inputs.wall_clock_minutes || '300' }}|" \
-            -e "s|cost_usd: 30|cost_usd: ${{ inputs.cost_usd || '80' }}|" \
-            -e "s|per_agent_cost_cap_usd: 8|per_agent_cost_cap_usd: ${{ inputs.per_agent_cost_cap_usd || '20' }}|" \
-            -e "s|minutes: 25|minutes: ${{ inputs.worker_minutes || '35' }}|" /tmp/run.yaml
+            -e "s|wall_clock_minutes: 180|wall_clock_minutes: ${{ inputs.wall_clock_minutes || '330' }}|" \
+            -e "s|cost_usd: 30|cost_usd: ${{ inputs.cost_usd || '120' }}|" \
+            -e "s|per_agent_cost_cap_usd: 8|per_agent_cost_cap_usd: ${{ inputs.per_agent_cost_cap_usd || '30' }}|" \
+            -e "s|minutes: 25|minutes: ${{ inputs.worker_minutes || '45' }}|" /tmp/run.yaml
           grep -E "wall_clock|cost_usd|playground_root|data_root" /tmp/run.yaml
 
       # The runner is systemd PID 1, but the runner account has no user manager
@@ -150,6 +150,7 @@ jobs:
           # copy of anything an agent might have printed.
           path: |
             playground/**/workspace/**
+            playground/**/private/**
             playground/**/resource_samples.jsonl
             data/*_manifest.jsonl
           retention-days: 30
