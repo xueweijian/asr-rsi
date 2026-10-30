@@ -66,6 +66,12 @@ llm:
       exporting - must fit in the step budget. A step killed at its wall-clock limit loses its work;
       nothing resumes it. Export early and improve with the time left.
 
+      Start from the previous step's shipped engine, not from first principles: read the newest
+      records/*/README.md and its artifacts/full/engine.py before touching anything, then make one
+      bounded change on top of it. Step 1 of the last run spent its whole budget re-deriving the
+      baseline and exported nothing, and steps 3, 5 and 7 died at their limit with unvalidated code.
+      Ship a harness-scored submission in the first half of the budget, then refine.
+
       Before choosing a lever, measure the cost decomposition on this host: frontend, encoder,
       decoder, launch_bubble. State which slice your change targets and your predicted gain. A step
       that leaves the score flat while measurably improving one slice is progress if you record it.
@@ -235,7 +241,7 @@ work_units:
   retry: 0
 search:
   input:
-    max_steps: 10
+    max_steps: 5
   kind: autoresearch
 disallowed_tools: []
 scheduler:

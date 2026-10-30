@@ -15,16 +15,16 @@ on:
     inputs:
       wall_clock_minutes:
         description: hard stop for the whole run
-        default: "330"
+        default: "480"
       cost_usd:
         description: total spend cap
-        default: "120"
+        default: "150"
       worker_minutes:
         description: wall clock per work unit
-        default: "45"
+        default: "60"
       per_agent_cost_cap_usd:
         description: spend cap per agent
-        default: "30"
+        default: "35"
 
 permissions:
   contents: write
@@ -32,7 +32,10 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    # Kept well above run.wall_clock_minutes: the framework must be the one that
+    # stops the run, because only a stop it makes itself finalizes the deliverable.
+    # Run #9 was cut off by the job timeout mid-step and produced no deliverable.
+    timeout-minutes: 600
     env:
       AIBUILDAI_SKIP_SUBSCRIPTION_CHECK: "1"
       ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
@@ -109,10 +112,10 @@ jobs:
           sed -e "s|__REPO__|$GITHUB_WORKSPACE|g" -e "s|__PLAYGROUND__|$GITHUB_WORKSPACE/playground|g" \
             search/run_config.yaml > /tmp/run.yaml
           sed -i \
-            -e "s|wall_clock_minutes: 180|wall_clock_minutes: ${{ inputs.wall_clock_minutes || '330' }}|" \
-            -e "s|cost_usd: 30|cost_usd: ${{ inputs.cost_usd || '120' }}|" \
-            -e "s|per_agent_cost_cap_usd: 8|per_agent_cost_cap_usd: ${{ inputs.per_agent_cost_cap_usd || '30' }}|" \
-            -e "s|minutes: 25|minutes: ${{ inputs.worker_minutes || '45' }}|" /tmp/run.yaml
+            -e "s|wall_clock_minutes: 180|wall_clock_minutes: ${{ inputs.wall_clock_minutes || '480' }}|" \
+            -e "s|cost_usd: 30|cost_usd: ${{ inputs.cost_usd || '150' }}|" \
+            -e "s|per_agent_cost_cap_usd: 8|per_agent_cost_cap_usd: ${{ inputs.per_agent_cost_cap_usd || '35' }}|" \
+            -e "s|minutes: 25|minutes: ${{ inputs.worker_minutes || '60' }}|" /tmp/run.yaml
           grep -E "wall_clock|cost_usd|playground_root|data_root" /tmp/run.yaml
 
       # The runner is systemd PID 1, but the runner account has no user manager
