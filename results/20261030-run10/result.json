@@ -1,0 +1,231 @@
+{
+  "run": "41091147742",
+  "job_status": "success",
+  "job_window": "2026-10-30T16:34Z..22:01Z",
+  "final": {
+    "score": 2.4989,
+    "output_dir": "/home/runner/work/asr-rsi/asr-rsi/playground/asr-rsi/20261030T163911Z_4a0e6d43b2804191a423677d0c812a3e/workspace/search_1/worker_5/state/artifacts/full",
+    "components": {
+      "constraint_ok": 1.0,
+      "gate_passed": 1.0,
+      "speedup": 2.4989,
+      "wer_delta": 0.0,
+      "wer_delta_ci": 0.0,
+      "wer_delta_ci_lo": 0.0,
+      "wer_delta_ci_mean": 0.0
+    }
+  },
+  "steps": [
+    {
+      "worker": "worker_1",
+      "step": "Step 1: no weights, no decode change, no audio change",
+      "hypothesis": "sherpa-onnx's batched CTC decode shares no compute across streams and only adds padding, so the adapter's own single-stream fallback is strictly cheaper for every batch size; and because ORT releases the GIL around Run while the session uses 2 intra-op threads on a 4-core host, running those single-stream decodes concurrently fills the machine without changing any per-stream forward pass",
+      "changes": [
+        "prepare(): wrap the runtime's transcribe with a per-request decode_stream policy for batches of any size, executed on a 4-worker thread pool",
+        "no configure() overrides: target.decode is frozen for both arms",
+        "no preprocess()/postprocess() changes: the audio and the emitted text are untouched",
+        "profile_ms reports the batch frontend and the batch decode total on every result, so reported parts plus launch_bubble equal the measured wall time (the adapter's own convention reports only one stream's share of the decode and leaves a large artificial bubble)"
+      ],
+      "evidence": {
+        "probes": [
+          "scratch/probe.py",
+          "scratch/probe2.py",
+          "scratch/probe4.py",
+          "scratch/probe5.py"
+        ],
+        "batched_over_sequential_ratio_range": [
+          1.25,
+          2.03
+        ],
+        "batch1_text_differences_stock_vs_plugin": "0/119",
+        "concurrent_vs_serial_text_differences": "0/112",
+        "speedup_serial": 1.774,
+        "speedup_2_workers": 2.027,
+        "speedup_4_workers": 2.329,
+        "worker_sweep_flat_past_3": true,
+        "profile_stock_slice": "encoder ~12% reported / ~87% launch_bubble (adapter reporting artifact), frontend ~3-5%"
+      },
+      "tunable_overrides": {},
+      "summary": "Step 1: no weights, no decode change, no audio change. The adapter's batched path (OfflineRecognizer.decode_streams) pads every stream in a batch up to the longest utterance and runs one padded forward pass; on this host that costs exactly the sequential cost times the padding ratio, so a manifest-order batch of 8 pays 1.25x-2.0x for frames the model should never have seen. This plugin swaps the runtime's transcribe() for a batch policy that calls decode_stream() once per request -- the path the adapter already uses for single-request batches -- and runs the members of a batch concurrently, because ORT releases the GIL around Run while the session is configured with 2 intra-op threads on a 4-core host. Measured decomposition on the dev manifest: frontend 2.6-4.5%, encoder 95%+, launch bubble ~0. Batch of 8, manifest order: serial single-stream decode costs 0.40-0.80x what decode_streams costs for the same 8 utterances, and 4 concurrent single-stream decodes cost 0.43x (2.33x speedup). decode settings are untouched (num_threads 2 already beat 1 and 4 on this 4-core host), the checkpoint is untouched, and the batch-1 arm -- the arm the transcript-drift and WER gates read -- takes the identical single-stream call the stock arm makes: 0/119 text differences over the dev manifest. Concurrent decode was measured text-identical to serial decode on 112/112 utterances, so the batched arm's transcript is unchanged too."
+    },
+    {
+      "worker": "worker_2",
+      "step": "Step 2: no weights, no decode change, no audio change",
+      "hypothesis": "sherpa-onnx's batched CTC decode shares no compute across streams and only adds padding, so the adapter's own single-stream fallback is strictly cheaper for every batch size; and because ORT releases the GIL around Run while the session uses 2 intra-op threads on a 4-core host, running those single-stream decodes concurrently fills the machine without changing any per-stream forward pass. The frontend build is independent per-request work, so it parallelizes on the same pool for a further ~2.8% of the batched wall.",
+      "changes": [
+        "prepare(): wrap the runtime's transcribe with a per-request decode_stream policy for batches of any size, executed on a 4-worker thread pool",
+        "prepare() step 2: the batch's streams (create_stream + accept_waveform) are built on the same pool for len(batch) > 1, serially for batch 1",
+        "no configure() overrides: target.decode is frozen for both arms",
+        "no preprocess()/postprocess() changes: the audio and the emitted text are untouched",
+        "profile_ms reports the batch frontend and the batch decode total on every result, so reported parts plus launch_bubble equal the measured wall time (the adapter's own convention reports only one stream's share of the decode and leaves a large artificial bubble)"
+      ],
+      "evidence": {
+        "probes": [
+          "scratch/probe.py",
+          "scratch/probe2.py",
+          "scratch/probe4.py",
+          "scratch/probe5.py",
+          "scratch/probe6.py"
+        ],
+        "batched_over_sequential_ratio_range": [
+          1.25,
+          2.03
+        ],
+        "batch1_text_differences_stock_vs_plugin": "0/119",
+        "concurrent_vs_serial_text_differences": "0/112",
+        "frontend_parallel_speedup": 1.5,
+        "frontend_parallel_text_differences": "0/112",
+        "speedup_serial": 1.774,
+        "speedup_2_workers": 2.027,
+        "speedup_4_workers": 2.329,
+        "worker_sweep_flat_past_3": true,
+        "profile_stock_slice": "encoder ~12% reported / ~87% launch_bubble (adapter reporting artifact), frontend ~3-5%",
+        "trim_investigation": "edge-silence trimming (15.8% of dev frames) changes the greedy CTC text on 75-90% of utterances at every hop alignment (global per-utterance sample normalization shifts every frame), so it is not a text-preserving lever and was dropped; see probe7/probe8/probe9"
+      },
+      "tunable_overrides": {},
+      "summary": "Step 2: no weights, no decode change, no audio change. The adapter's batched path (OfflineRecognizer.decode_streams) pads every stream in a batch up to the longest utterance and runs one padded forward pass; on this host that costs exactly the sequential cost times the padding ratio, so a manifest-order batch of 8 pays 1.25x-2.0x for frames the model should never have seen. This plugin swaps the runtime's transcribe() for a batch policy that calls decode_stream() once per request -- the path the adapter already uses for single-request batches -- and runs the members of a batch concurrently, because ORT releases the GIL around Run while the session is configured with 2 intra-op threads on a 4-core host. Step 2 additionally builds the batch's streams (create_stream + accept_waveform, ~9% of the batched wall once the decode is 2.3x faster) on the same pool instead of serially: measured 997 ms -> 666 ms over 14 manifest-order batches (1.50x), text-identical to the serial build. Decode settings are untouched (num_threads 2 already beat 1 and 4 on this 4-core host), the checkpoint is untouched, and the batch-1 arm -- the arm the transcript-drift and WER gates read -- takes the identical serial single-stream call the stock arm makes: 0/119 text differences over the dev manifest. Concurrent decode was measured text-identical to serial decode on 112/112 utterances and concurrent stream building on 112/112, so the batched arm's transcript is unchanged too."
+    },
+    {
+      "worker": "worker_3",
+      "step": "Step 3: no weights, no decode-method change, no audio change",
+      "hypothesis": "The batched arm's remaining wall is 4 concurrent single-stream decodes with 2 intra-op threads each (8 threads on 4 cores, oversubscribed) plus an exposed per-request frontend. One intra-op thread per decode removes the oversubscription, and folding the stream build into the decode task hides the frontend of later requests behind the decode of earlier ones. Both changes schedule the runtime's own calls; neither touches the model, the weights, the decode method or the audio.",
+      "changes": [
+        "configure(): override the tunable key target.decode.num_threads 2 -> 1 (no other decode key is touched)",
+        "prepare(): wrap the runtime's transcribe with a per-request decode_stream policy for batches of any size, executed on a 4-worker thread pool",
+        "prepare() step 3: each pool task builds its own stream and decodes it (combined build+decode), so the frontend of later requests overlaps the decode of earlier ones; batch 1 keeps the serial single-stream call",
+        "no preprocess()/postprocess() changes: the audio and the emitted text are untouched",
+        "profile_ms reports the batch frontend and the batch decode total on every result; because the frontend overlaps the decode, the two parts can sum above the batch wall time, and the arm's launch_bubble residual is exactly the pool overhead"
+      ],
+      "evidence": {
+        "probes": [
+          "scratch/probe10.json",
+          "scratch/probe11.json"
+        ],
+        "padded_path_ms_per_batch_by_threads": {
+          "2": 1964.4,
+          "4": 2213.4,
+          "8": 4634.8,
+          "16": 9715.1
+        },
+        "concurrent_ms_per_batch_threads2_vs_threads1": {
+          "workers4": [
+            871.3,
+            834.0
+          ],
+          "workers8": [
+            850.5,
+            836.5
+          ]
+        },
+        "combined_vs_twophase_ms_per_batch": {
+          "workers4": [
+            871.3,
+            811.4
+          ],
+          "workers8": [
+            850.5,
+            804.5
+          ]
+        },
+        "batch1_text_differences_threads1_vs_threads2": "0/119",
+        "combined_vs_twophase_text_differences": "0/48",
+        "worker_sweep_threads1": {
+          "conc-4-1": 841.9,
+          "conc-8-1": 823.4,
+          "combined-4-1": 811.4,
+          "combined-6-1": 812.7,
+          "combined-8-1": 804.5
+        },
+        "profile_note": "frontend and encoder overlap inside a batch, so their batch totals can exceed the batch wall; the arm's launch_bubble residual absorbs the difference"
+      },
+      "tunable_overrides": {
+        "target.decode.num_threads": "2 -> 1"
+      },
+      "summary": "Step 3: no weights, no decode-method change, no audio change. Two bounded changes on top of step 2's engine, both in the submission's scheduling of the runtime's own calls. (1) num_threads 2 -> 1 through configure() (a tunable key): four concurrent single-stream decodes x 1 intra-op thread is 4 threads on 4 cores with no oversubscription; measured 871 -> 834 ms/batch on 6 manifest-order batches of 8 (probe10), and the batch-1 transcript is bit-identical to the stock arm's over all 119 dev utterances (0/119), so the drift and WER gates are untouched. (2) Combined build+decode pool tasks: instead of building the batch's streams first and then decoding them (which left the whole frontend exposed), each pool task now builds its own stream and decodes it, so the frontend of the later requests hides behind the decode of the earlier ones; measured 871 -> 811 ms/batch at 4 workers (probe10/probe11), text-identical to the two-phase schedule (0/48 on the sweep batches). The adapter's padded decode_streams path was swept as an alternative and is dead: more intra-op threads make it dramatically worse (1964 ms/batch at 2 threads -- the stock setting -- 4635 at 8, 9715 at 16), because the padded graph contends for cores instead of filling them. The checkpoint, the tokenizer, the frontend feature extractor and the greedy CTC decode are untouched; the batch-1 arm takes the identical serial single-stream call the stock arm makes."
+    },
+    {
+      "worker": "worker_4",
+      "step": "Step 4: no weights, no decode-method change, no audio change",
+      "hypothesis": "The batched arm's wall is four concurrent single-stream decodes on four logical CPUs, and ThreadPoolExecutor dispatches them in list order. Because the decode cost tracks audio duration and the durations inside a batch of 8 vary by up to 8x, list scheduling leaves the last worker idle for a large fraction of the batch; submitting the batch longest-first turns the greedy dispatch into LPT and shortens the makespan without touching a single decode.",
+      "changes": [
+        "prepare() step 4: the batched arm sorts the batch by descending audio duration before submitting it to the pool, and puts the pool's results back into request order; batch 1 keeps the serial single-stream call",
+        "prepare() step 3 (kept): each pool task builds its own stream and decodes it, so the frontend of later requests overlaps the decode of earlier ones",
+        "configure() step 3 (kept): override the tunable key target.decode.num_threads 2 -> 1; no other decode key is touched",
+        "no preprocess()/postprocess() changes: the audio and the emitted text are untouched",
+        "profile_ms reports the batch frontend and the batch decode total on every result; because the frontend overlaps the decode, the two parts can sum above the batch wall time, and the arm's launch_bubble residual is exactly the pool overhead"
+      ],
+      "evidence": {
+        "probes": [
+          "scratch/probe12.json",
+          "scratch/probe13.json"
+        ],
+        "cost_model_serial_threads1": "13.4 ms per decode_stream call + 33.9 ms per audio-second, fitted on the first eight dev utterances (probe12 part A)",
+        "dispatch_order_ms_per_batch": {
+          "manifest": 738.4,
+          "longest_first": 703.3,
+          "shortest_first": 762.2
+        },
+        "dispatch_order_audio_s_per_wall_s": {
+          "manifest": 55.71,
+          "longest_first": 58.49,
+          "shortest_first": 53.98
+        },
+        "dispatch_order_text_differences": "0/119",
+        "reswept_with_ordering_audio_s_per_wall_s": {
+          "t1w4": 58.49,
+          "t1w6": 56.27,
+          "t1w8": 55.17,
+          "t2w4": 54.22
+        },
+        "hardware": "2 physical cores, 4 logical CPUs (lscpu: 2 cores/socket, 2 threads/core); four concurrent single-thread decodes give ~2x a single decode",
+        "profile_note": "frontend and encoder overlap inside a batch, so their batch totals can exceed the batch wall; the arm's launch_bubble residual absorbs the difference"
+      },
+      "tunable_overrides": {
+        "target.decode.num_threads": "2 -> 1"
+      },
+      "summary": "Step 4: no weights, no decode-method change, no audio change. One bounded change on top of step 3's engine, in the submission's scheduling of the runtime's own calls: the batch is dispatched to the pool longest-first. ThreadPoolExecutor.map feeds the work queue in list order and a freed worker takes the next queued task, so a batch is list scheduled and its makespan is the busiest worker's load, not the batch total divided by the worker count. The dev manifest is uneven inside a batch of 8 by up to 8x (1.74 s to 16.35 s overall; one batch spans 2.3 s .. 14.6 s) and decode cost is proportional to audio duration (a serial single-stream decode at num_threads=1 fits 13.4 ms + 33.9 ms per audio-second, probe12), so manifest order leaves the last worker finishing long after the others. Sorting by descending duration makes the greedy dispatch equivalent to LPT. Measured on all 119 dev utterances, 15 manifest-order batches, 2 timed repeats after a full warm pass (probe13): manifest order 738.4 ms/batch (55.71 audio-s/wall-s), longest-first 703.3 ms/batch (58.49), shortest-first 762.2 (53.98) -- monotone in the order, so it is a scheduling result and not noise. Pool size and thread count were re-swept with the ordering in place and 4 workers at num_threads=1 still wins (desc t1w6 56.27, desc t1w8 55.17, desc t2w4 54.22). This host is 2 physical cores with 4 hyperthreads, so four concurrent single-thread decodes deliver ~2x a single decode and no more; the ordering change is what keeps those two cores fed for the whole batch. Each utterance still goes through the same single-stream decode_stream on the same session, so its transcript is a function of its own audio alone: probe13 compared the transcript of all 119 dev utterances between list and longest-first dispatch and found 0 differences. The batch-1 arm (the arm the drift and WER gates read) is unchanged and still takes the identical serial single-stream call the stock arm makes. The checkpoint, the tokenizer, the frontend feature extractor, the greedy CTC decode and the emitted text are untouched."
+    },
+    {
+      "worker": "worker_5",
+      "step": "Step 4: no weights, no decode-method change, no audio change",
+      "hypothesis": "The batched arm's wall is four concurrent single-stream decodes on four logical CPUs, and ThreadPoolExecutor dispatches them in list order. Because the decode cost tracks audio duration and the durations inside a batch of 8 vary by up to 8x, list scheduling leaves the last worker idle for a large fraction of the batch; submitting the batch longest-first turns the greedy dispatch into LPT and shortens the makespan without touching a single decode.",
+      "changes": [
+        "prepare() step 4: the batched arm sorts the batch by descending audio duration before submitting it to the pool, and puts the pool's results back into request order; batch 1 keeps the serial single-stream call",
+        "prepare() step 3 (kept): each pool task builds its own stream and decodes it, so the frontend of later requests overlaps the decode of earlier ones",
+        "configure() step 3 (kept): override the tunable key target.decode.num_threads 2 -> 1; no other decode key is touched",
+        "no preprocess()/postprocess() changes: the audio and the emitted text are untouched",
+        "profile_ms reports the batch frontend and the batch decode total on every result; because the frontend overlaps the decode, the two parts can sum above the batch wall time, and the arm's launch_bubble residual is exactly the pool overhead"
+      ],
+      "evidence": {
+        "probes": [
+          "scratch/probe12.json",
+          "scratch/probe13.json"
+        ],
+        "cost_model_serial_threads1": "13.4 ms per decode_stream call + 33.9 ms per audio-second, fitted on the first eight dev utterances (probe12 part A)",
+        "dispatch_order_ms_per_batch": {
+          "manifest": 738.4,
+          "longest_first": 703.3,
+          "shortest_first": 762.2
+        },
+        "dispatch_order_audio_s_per_wall_s": {
+          "manifest": 55.71,
+          "longest_first": 58.49,
+          "shortest_first": 53.98
+        },
+        "dispatch_order_text_differences": "0/119",
+        "reswept_with_ordering_audio_s_per_wall_s": {
+          "t1w4": 58.49,
+          "t1w6": 56.27,
+          "t1w8": 55.17,
+          "t2w4": 54.22
+        },
+        "hardware": "2 physical cores, 4 logical CPUs (lscpu: 2 cores/socket, 2 threads/core); four concurrent single-thread decodes give ~2x a single decode",
+        "profile_note": "frontend and encoder overlap inside a batch, so their batch totals can exceed the batch wall; the arm's launch_bubble residual absorbs the difference"
+      },
+      "tunable_overrides": {
+        "target.decode.num_threads": "2 -> 1"
+      },
+      "summary": "Step 4: no weights, no decode-method change, no audio change. One bounded change on top of step 3's engine, in the submission's scheduling of the runtime's own calls: the batch is dispatched to the pool longest-first. ThreadPoolExecutor.map feeds the work queue in list order and a freed worker takes the next queued task, so a batch is list scheduled and its makespan is the busiest worker's load, not the batch total divided by the worker count. The dev manifest is uneven inside a batch of 8 by up to 8x (1.74 s to 16.35 s overall; one batch spans 2.3 s .. 14.6 s) and decode cost is proportional to audio duration (a serial single-stream decode at num_threads=1 fits 13.4 ms + 33.9 ms per audio-second, probe12), so manifest order leaves the last worker finishing long after the others. Sorting by descending duration makes the greedy dispatch equivalent to LPT. Measured on all 119 dev utterances, 15 manifest-order batches, 2 timed repeats after a full warm pass (probe13): manifest order 738.4 ms/batch (55.71 audio-s/wall-s), longest-first 703.3 ms/batch (58.49), shortest-first 762.2 (53.98) -- monotone in the order, so it is a scheduling result and not noise. Pool size and thread count were re-swept with the ordering in place and 4 workers at num_threads=1 still wins (desc t1w6 56.27, desc t1w8 55.17, desc t2w4 54.22). This host is 2 physical cores with 4 hyperthreads, so four concurrent single-thread decodes deliver ~2x a single decode and no more; the ordering change is what keeps those two cores fed for the whole batch. Each utterance still goes through the same single-stream decode_stream on the same session, so its transcript is a function of its own audio alone: probe13 compared the transcript of all 119 dev utterances between list and longest-first dispatch and found 0 differences. The batch-1 arm (the arm the drift and WER gates read) is unchanged and still takes the identical serial single-stream call the stock arm makes. The checkpoint, the tokenizer, the frontend feature extractor, the greedy CTC decode and the emitted text are untouched."
+    }
+  ]
+}

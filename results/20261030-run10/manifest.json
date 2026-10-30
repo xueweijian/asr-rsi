@@ -1,0 +1,57 @@
+{
+  "summary": "Step 4: no weights, no decode-method change, no audio change. One bounded change on top of step 3's engine, in the submission's scheduling of the runtime's own calls: the batch is dispatched to the pool longest-first. ThreadPoolExecutor.map feeds the work queue in list order and a freed worker takes the next queued task, so a batch is list scheduled and its makespan is the busiest worker's load, not the batch total divided by the worker count. The dev manifest is uneven inside a batch of 8 by up to 8x (1.74 s to 16.35 s overall; one batch spans 2.3 s .. 14.6 s) and decode cost is proportional to audio duration (a serial single-stream decode at num_threads=1 fits 13.4 ms + 33.9 ms per audio-second, probe12), so manifest order leaves the last worker finishing long after the others. Sorting by descending duration makes the greedy dispatch equivalent to LPT. Measured on all 119 dev utterances, 15 manifest-order batches, 2 timed repeats after a full warm pass (probe13): manifest order 738.4 ms/batch (55.71 audio-s/wall-s), longest-first 703.3 ms/batch (58.49), shortest-first 762.2 (53.98) -- monotone in the order, so it is a scheduling result and not noise. Pool size and thread count were re-swept with the ordering in place and 4 workers at num_threads=1 still wins (desc t1w6 56.27, desc t1w8 55.17, desc t2w4 54.22). This host is 2 physical cores with 4 hyperthreads, so four concurrent single-thread decodes deliver ~2x a single decode and no more; the ordering change is what keeps those two cores fed for the whole batch. Each utterance still goes through the same single-stream decode_stream on the same session, so its transcript is a function of its own audio alone: probe13 compared the transcript of all 119 dev utterances between list and longest-first dispatch and found 0 differences. The batch-1 arm (the arm the drift and WER gates read) is unchanged and still takes the identical serial single-stream call the stock arm makes. The checkpoint, the tokenizer, the frontend feature extractor, the greedy CTC decode and the emitted text are untouched.",
+  "changes": [
+    "prepare() step 4: the batched arm sorts the batch by descending audio duration before submitting it to the pool, and puts the pool's results back into request order; batch 1 keeps the serial single-stream call",
+    "prepare() step 3 (kept): each pool task builds its own stream and decodes it, so the frontend of later requests overlaps the decode of earlier ones",
+    "configure() step 3 (kept): override the tunable key target.decode.num_threads 2 -> 1; no other decode key is touched",
+    "no preprocess()/postprocess() changes: the audio and the emitted text are untouched",
+    "profile_ms reports the batch frontend and the batch decode total on every result; because the frontend overlaps the decode, the two parts can sum above the batch wall time, and the arm's launch_bubble residual is exactly the pool overhead"
+  ],
+  "extra_weights_bytes": 0,
+  "step5_verification": {
+    "action": "shipped unchanged; the scheduling surface is closed",
+    "cost_law_serial_decode_ms_per_audio_s": 35.5,
+    "cost_law_intercept_ms": "~0 past the shortest point (1-16 s fits 36.3 ms/s, -3 ms)",
+    "frontend": "create_stream 0.09 ms; accept_waveform 1.65 ms per audio-second (4.4% of arm CPU)",
+    "control_audio_s_per_wall_s": 57.97,
+    "falsified_this_step": {
+      "tail_frontend_prefetch_on_main_thread": "783.1 ms/batch vs 709.7 control (10% worse)",
+      "build_all_then_decode_all_two_phase": "726.0 ms/batch vs 708.1 combined (2.5% worse)"
+    },
+    "text_diff_vs_control": "0/119 for every variant tested",
+    "probes": [
+      "probe14.py",
+      "probe15.py"
+    ]
+  },
+  "tunable_overrides": {
+    "target.decode.num_threads": "2 -> 1"
+  },
+  "hypothesis": "The batched arm's wall is four concurrent single-stream decodes on four logical CPUs, and ThreadPoolExecutor dispatches them in list order. Because the decode cost tracks audio duration and the durations inside a batch of 8 vary by up to 8x, list scheduling leaves the last worker idle for a large fraction of the batch; submitting the batch longest-first turns the greedy dispatch into LPT and shortens the makespan without touching a single decode.",
+  "evidence": {
+    "probes": [
+      "scratch/probe12.json",
+      "scratch/probe13.json"
+    ],
+    "cost_model_serial_threads1": "13.4 ms per decode_stream call + 33.9 ms per audio-second, fitted on the first eight dev utterances (probe12 part A)",
+    "dispatch_order_ms_per_batch": {
+      "manifest": 738.4,
+      "longest_first": 703.3,
+      "shortest_first": 762.2
+    },
+    "dispatch_order_audio_s_per_wall_s": {
+      "manifest": 55.71,
+      "longest_first": 58.49,
+      "shortest_first": 53.98
+    },
+    "dispatch_order_text_differences": "0/119",
+    "reswept_with_ordering_audio_s_per_wall_s": {
+      "t1w4": 58.49,
+      "t1w6": 56.27,
+      "t1w8": 55.17,
+      "t2w4": 54.22
+    },
+    "hardware": "2 physical cores, 4 logical CPUs (lscpu: 2 cores/socket, 2 threads/core); four concurrent single-thread decodes give ~2x a single decode",
+    "profile_note": "frontend and encoder overlap inside a batch, so their batch totals can exceed the batch wall; the arm's launch_bubble residual absorbs the difference"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "samples": 1240,
+  "span_minutes": 321.9,
+  "host": {
+    "cpu_count": 4,
+    "memory_total_mb": 15983
+  },
+  "memory_used_mb_max": 6294,
+  "cpu_load_1m_mean": 0.9,
+  "cpu_load_1m_max": 10.9
+}
