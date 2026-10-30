@@ -223,11 +223,15 @@ class RequestStream:
                     text=text_fact,
                 )
         elif ev.subtype not in _BOOKKEEPING_SUBTYPES:
-            # Hook events and session-store mirror errors need options the
-            # product never sets; anything else is a subtype never classified.
-            raise AssertionError(
-                f"unclassified Claude system message {ev.subtype!r}: {data}"
-            )
+            # The CLI keeps adding system subtypes (session_title_changed, for
+            # one). Tearing down every unit of the search over one is worse than
+            # ignoring it: record the shape and keep going.
+            for observer in self._observers:
+                observer.backend_log(
+                    level="warn",
+                    source="claude-sdk",
+                    text=f"unclassified Claude system message {ev.subtype!r}: {data}",
+                )
 
     def _read_assistant(self, ev: AssistantMessage) -> None:
         parent = ev.parent_tool_use_id
