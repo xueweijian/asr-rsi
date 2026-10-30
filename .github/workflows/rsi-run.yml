@@ -6,6 +6,11 @@ name: rsi-run
 # systemd VM, so the loop runs there.
 
 on:
+  # Push trigger so the run can be started from the repo itself (bump the
+  # marker file). workflow_dispatch stays for manual runs with custom budgets.
+  push:
+    paths:
+      - .github/rsi-trigger
   workflow_dispatch:
     inputs:
       wall_clock_minutes:
@@ -104,10 +109,10 @@ jobs:
           sed -e "s|__REPO__|$GITHUB_WORKSPACE|g" -e "s|__PLAYGROUND__|$GITHUB_WORKSPACE/playground|g" \
             search/run_config.yaml > /tmp/run.yaml
           sed -i \
-            -e "s|wall_clock_minutes: 180|wall_clock_minutes: ${{ inputs.wall_clock_minutes }}|" \
-            -e "s|cost_usd: 30|cost_usd: ${{ inputs.cost_usd }}|" \
-            -e "s|per_agent_cost_cap_usd: 8|per_agent_cost_cap_usd: ${{ inputs.per_agent_cost_cap_usd }}|" \
-            -e "s|minutes: 25|minutes: ${{ inputs.worker_minutes }}|" /tmp/run.yaml
+            -e "s|wall_clock_minutes: 180|wall_clock_minutes: ${{ inputs.wall_clock_minutes || '300' }}|" \
+            -e "s|cost_usd: 30|cost_usd: ${{ inputs.cost_usd || '80' }}|" \
+            -e "s|per_agent_cost_cap_usd: 8|per_agent_cost_cap_usd: ${{ inputs.per_agent_cost_cap_usd || '20' }}|" \
+            -e "s|minutes: 25|minutes: ${{ inputs.worker_minutes || '35' }}|" /tmp/run.yaml
           grep -E "wall_clock|cost_usd|playground_root|data_root" /tmp/run.yaml
 
       # The runner is systemd PID 1, but the runner account has no user manager
