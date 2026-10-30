@@ -132,7 +132,11 @@ jobs:
           systemctl --user is-system-running
 
       - name: Run
+        # tee reports its own status, so without pipefail a failed run shows up
+        # as a green step -- that is how the setup_1 assertion in run #6 slipped
+        # past and had to be found by reading the log.
         run: |
+          set -o pipefail
           . .venv/bin/activate
           aibuildai run /tmp/run.yaml 2>&1 | tee /tmp/run.log
 
